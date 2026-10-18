@@ -2,8 +2,10 @@ package com.relay.spectate;
 
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.gui.components.PlayerFaceExtractor;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.PlayerSkin;
 
 /**
@@ -20,11 +22,12 @@ public final class BreakdownScreen extends Screen {
 	private final String nameA, nameB, kit;
 	private final Stats stats;
 	private final PlayerSkin skinA, skinB; // may be null if the skin was never seen
+	private final LivingEntity winnerEntity; // rendered full-body; may be null or removed
 	private final boolean aWon;
 	private final int scoreA, scoreB;
 
 	public BreakdownScreen(String nameA, String nameB, String kit, Stats stats, PlayerSkin skinA, PlayerSkin skinB,
-			boolean aWon, int scoreA, int scoreB) {
+			LivingEntity winnerEntity, boolean aWon, int scoreA, int scoreB) {
 		super(Component.literal("Round Breakdown"));
 		this.nameA = nameA;
 		this.nameB = nameB;
@@ -32,6 +35,7 @@ public final class BreakdownScreen extends Screen {
 		this.stats = stats;
 		this.skinA = skinA;
 		this.skinB = skinB;
+		this.winnerEntity = winnerEntity;
 		this.aWon = aWon;
 		this.scoreA = scoreA;
 		this.scoreB = scoreB;
@@ -58,6 +62,30 @@ public final class BreakdownScreen extends Screen {
 		}
 		PlayerFaceExtractor.extractRenderState(g, skin, x, y, size);
 	}
+
+	/** Text drawn at an arbitrary scale (the font itself only has one size). */
+	private void bigText(GuiGraphicsExtractor g, String s, float x, float y, float scale, int color) {
+		g.pose().pushMatrix();
+		g.pose().translate(x, y);
+		g.pose().scale(scale, scale);
+		text(g, s, 0, 0, color);
+		g.pose().popMatrix();
+	}
+
+	private void bigCentered(GuiGraphicsExtractor g, String s, float cx, float y, float scale, int color) {
+		bigText(g, s, cx - this.font.width(s) * scale / 2f, y, scale, color);
+	}
+
+	/** Full-body render of the winner; falls back to a large head if unavailable. */
+	private void figure(GuiGraphicsExtractor g, int x1, int y1, int x2, int y2, int mx, int my, PlayerSkin skin) {
+		if (winnerEntity != null && !winnerEntity.isRemoved()) {
+			int scale = Math.max(10, (y2 - y1) * 10 / 21); // ~1.9 blocks tall at 0.525 px per unit
+			InventoryScreen.extractEntityInInventoryFollowsMouse(g, x1, y1, x2, y2, scale, 0.0625f, mx, my, winnerEntity);
+		} else {
+			int big = Math.min(x2 - x1, y2 - y1);
+			face(g, skin, (x1 + x2) / 2 - big / 2, y1, big);
+		}
+	}
 	// -------------------------------------------------------------------------
 
 	private void frame(GuiGraphicsExtractor g, int x1, int y1, int x2, int y2) {
@@ -72,82 +100,92 @@ public final class BreakdownScreen extends Screen {
 		fill(g, this.width / 8, 0, this.width * 7 / 8, this.height, 0xFF6B4416);
 		fill(g, this.width / 4, 0, this.width * 3 / 4, this.height, 0xFF8A5A1E);
 
-		boolean aWins = aWon;
-		String winnerName = aWins ? nameA : nameB;
-		PlayerSkin winnerSkin = aWins ? skinA : skinB;
+		// Lay out in a design space of at least 240 tall, scaled down on big GUI scales.
+		final float designH = 240f;
+		float k = Math.min(1f, this.height / designH);
+		int W = Math.round(this.width / k), H = Math.round(this.height / k);
+		int mx = Math.round(mouseX / k), my = Math.round(mouseY / k);
+		g.pose().pushMatrix();
+		g.pose().scale(k, k);
+		drawCard(g, W, H, mx, my);
+		g.pose().popMatrix();
+	}
+
+	private void drawCard(GuiGraphicsExtractor g, int W, int H, int mx, int my) {
+		String winnerName = aWon ? nameA : nameB;
+		PlayerSkin winnerSkin = aWon ? skinA : skinB;
 
 		// ---- left column: winner ------------------------------------------------
-		int colW = Math.max(110, this.width / 4);
-		int lx = Math.max(8, this.width / 24), lcx = lx + colW / 2;
-		int plateW = Math.max(this.font.width(winnerName) + 24, 90);
-		fill(g, lcx - plateW / 2, 14, lcx + plateW / 2, 36, 0xB0302010);
-		centered(g, winnerName.toUpperCase(), lcx, 21, WHITE);
+		int colW = Math.max(110, W / 4);
+		int lx = Math.max(8, W / 24), lcx = lx + colW / 2;
+		int plateW = Math.max((int) (this.font.width(winnerName) * 1.5f) + 24, 90);
+		fill(g, lcx - plateW / 2, 8, lcx + plateW / 2, 32, 0xB0302010);
+		bigCentered(g, winnerName.toUpperCase(), lcx, 14, 1.5f, WHITE);
 
-		int big = Math.min(colW - 10, this.height / 2 - 20);
-		face(g, winnerSkin, lcx - big / 2, 46, big);
-
-		int bannerTop = this.height - 56;
-		fill(g, lx, bannerTop, lx + colW, bannerTop + 36, 0xFFF2C31E);
-		fill(g, lx, bannerTop, lx + colW / 5, bannerTop + 36, 0xFFFFF2B0);
-		centered(g, "WINNER", lcx + colW / 10, bannerTop + 14, GOLD_DK);
+		int bannerTop = H - 52, bannerH = 36;
+		figure(g, lx, 38, lx + colW, bannerTop - 4, mx, my, winnerSkin);
+		fill(g, lx, bannerTop, lx + colW, bannerTop + bannerH, 0xFFF2C31E);
+		fill(g, lx, bannerTop, lx + colW / 5, bannerTop + bannerH, 0xFFFFF2B0);
+		bigCentered(g, "WINNER", lcx + colW / 10f, bannerTop + 8, 2.5f, GOLD_DK);
 
 		// ---- right column: header, table, score -----------------------------------
-		int rx1 = this.width * 2 / 5, rx2 = this.width - Math.max(8, this.width / 24);
+		int rx1 = W * 2 / 5, rx2 = W - Math.max(8, W / 24);
 		int cx = (rx1 + rx2) / 2;
-		int top = 12;
+		int top = 6;
 
-		frame(g, rx1, top, rx2, top + 48);
-		centered(g, "ROUND BREAKDOWN", cx, top + 12, WHITE);
-		centered(g, nameA + " vs " + nameB, cx, top + 30, GOLD);
+		int headH = 40;
+		frame(g, rx1, top, rx2, top + headH);
+		bigCentered(g, "ROUND BREAKDOWN", cx, top + 5, 2.0f, WHITE);
+		centered(g, nameA + " vs " + nameB, cx, top + 27, GOLD);
 
-		int ty = top + 62, rowH = 24, rows = 5;
-		int tbottom = ty + 20 + rows * rowH;
+		int ty = top + headH + 8, titleH = 22, rowH = 21, rows = 5;
+		int tbottom = ty + titleH + rows * rowH;
 		frame(g, rx1, ty, rx2, tbottom);
-		fill(g, rx1, ty + 18, rx2, ty + 22, GOLD); // gold rule under the title row
-		centered(g, kit.toUpperCase(), cx, ty + 5, WHITE);
+		fill(g, rx1, ty + titleH - 4, rx2, ty + titleH, GOLD); // gold rule under the title row
+		bigCentered(g, kit.toUpperCase(), cx, ty + 3, 1.5f, WHITE);
 		String rw = "Round Winner >";
-		text(g, rw, rx2 - 8 - this.font.width(rw), ty + 5, GOLD);
+		text(g, rw, rx2 - 8 - this.font.width(rw), ty + 7, GOLD);
 
-		int ry = ty + 22;
-		row(g, ry, rx1, rx2, "Damage", f1(stats.a.damage), f1(stats.b.damage), stats.a.damage, stats.b.damage);
-		row(g, ry + rowH, rx1, rx2, "Regen", f1(stats.a.regen), f1(stats.b.regen), stats.a.regen, stats.b.regen);
-		row(g, ry + 2 * rowH, rx1, rx2, "Total Hits", "" + stats.a.hits, "" + stats.b.hits, stats.a.hits, stats.b.hits);
-		row(g, ry + 3 * rowH, rx1, rx2, "Accuracy", f1(stats.a.accuracy()) + "%", f1(stats.b.accuracy()) + "%",
+		int ry = ty + titleH;
+		row(g, ry, rx1, rx2, rowH, "Damage", f1(stats.a.damage), f1(stats.b.damage), stats.a.damage, stats.b.damage);
+		row(g, ry + rowH, rx1, rx2, rowH, "Regen", f1(stats.a.regen), f1(stats.b.regen), stats.a.regen, stats.b.regen);
+		row(g, ry + 2 * rowH, rx1, rx2, rowH, "Total Hits", "" + stats.a.hits, "" + stats.b.hits, stats.a.hits, stats.b.hits);
+		row(g, ry + 3 * rowH, rx1, rx2, rowH, "Accuracy", f1(stats.a.accuracy()) + "%", f1(stats.b.accuracy()) + "%",
 			stats.a.accuracy(), stats.b.accuracy());
-		row(g, ry + 4 * rowH, rx1, rx2, "Critical Hits", "" + stats.a.crits, "" + stats.b.crits, stats.a.crits, stats.b.crits);
+		row(g, ry + 4 * rowH, rx1, rx2, rowH, "Critical Hits", "" + stats.a.crits, "" + stats.b.crits, stats.a.crits, stats.b.crits);
 
 		// Match score: head, diamonds, centre badge, diamonds, head.
-		int sy = tbottom + 12, sh = 40, head = 28;
+		int sy = tbottom + 8, sh = 36, head = 26;
 		frame(g, rx1, sy, rx2, sy + sh);
 		fill(g, rx1 - 2, sy + sh, rx2 + 2, sy + sh + 4, GOLD);
-		face(g, skinA, rx1 + 8, sy + 6, head);
-		face(g, skinB, rx2 - 8 - head, sy + 6, head);
+		face(g, skinA, rx1 + 6, sy + 5, head);
+		face(g, skinB, rx2 - 6 - head, sy + 5, head);
 		int slots = Math.max(2, Math.max(scoreA, scoreB));
-		diamonds(g, cx - 32 - slots * 12, sy + 15, slots, scoreA, false);
-		diamonds(g, cx + 32, sy + 15, slots, scoreB, true);
-		centered(g, "PVP CHAMPS", cx, sy + 10, GOLD);
-		centered(g, "Match Score", cx, sy + sh + 8, GOLD);
+		diamonds(g, cx - 32 - slots * 12, sy + 14, slots, scoreA, false);
+		diamonds(g, cx + 32, sy + 14, slots, scoreB, true);
+		bigCentered(g, "PVP CHAMPS", cx, sy + 9, 1.2f, GOLD);
+		centered(g, "Match Score", cx, sy + sh + 7, GOLD);
 
-		centered(g, "Press ESC to close", cx, this.height - 12, GRAY);
+		centered(g, "Press ESC to close", cx, H - 11, GRAY);
 	}
 
 	/** Filled diamond per round won, hollow for the rest; B's row fills from the left like A's mirrors. */
 	private void diamonds(GuiGraphicsExtractor g, int x, int y, int slots, int won, boolean mirrored) {
 		for (int i = 0; i < slots; i++) {
-			int idx = mirrored ? i : slots - 1 - i; // A fills toward the centre
 			boolean filled = mirrored ? i < won : (slots - 1 - i) < won;
 			text(g, filled ? "◆" : "◇", x + i * 12, y, filled ? WHITE : GRAY);
 		}
 	}
 
 	/** Leader of each stat is bright, the other is dimmed (as in the card). */
-	private void row(GuiGraphicsExtractor g, int y, int x1, int x2, String label, String a, String b, double va, double vb) {
+	private void row(GuiGraphicsExtractor g, int y, int x1, int x2, int rowH, String label, String a, String b, double va, double vb) {
 		int cx = (x1 + x2) / 2;
-		fill(g, x1, y + 23, x2, y + 24, 0x30FFFFFF);
-		centered(g, label, cx, y + 8, GOLD);
+		fill(g, x1, y + rowH - 1, x2, y + rowH, 0x30FFFFFF);
+		centered(g, label, cx, y + rowH / 2 - 4, GOLD);
 		boolean aLeads = va >= vb;
-		text(g, a, cx - 70 - this.font.width(a), y + 8, aLeads ? WHITE : GRAY);
-		text(g, b, cx + 70, y + 8, aLeads ? GRAY : WHITE);
+		float sc = 1.5f;
+		bigText(g, a, cx - 62 - this.font.width(a) * sc, y + (rowH - 9 * sc) / 2f, sc, aLeads ? WHITE : GRAY);
+		bigText(g, b, cx + 62, y + (rowH - 9 * sc) / 2f, sc, aLeads ? GRAY : WHITE);
 	}
 
 	private static String f1(double v) {

@@ -284,7 +284,7 @@ public final class RelayClient implements ClientModInitializer {
 	private static void showBreakdown(Minecraft mc, boolean loserIsA) {
 		boolean aWon = !loserIsA;
 		if (aWon) scoreA++; else scoreB++;
-		lastBreakdown = new BreakdownScreen(nameA, nameB, kit, stats, skinA, skinB, aWon, scoreA, scoreB);
+		lastBreakdown = new BreakdownScreen(nameA, nameB, kit, stats, skinA, skinB, mc.level == null ? null : find(mc.level, aWon ? nameA : nameB), aWon, scoreA, scoreB);
 		stats = new Stats(); // fresh numbers for the next round
 		mc.setScreenAndShow(lastBreakdown);
 	}
