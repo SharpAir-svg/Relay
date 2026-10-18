@@ -183,9 +183,21 @@ public final class RelayClient implements ClientModInitializer {
 	private static void netTick() {
 		if (++netTicks % 10 != 0) return;
 		if (ClientPlayNetworking.canSend(RelayNet.Request.TYPE)) ClientPlayNetworking.send(new RelayNet.Request(nameA, nameB));
-		Kit k = Kit.detect(countsOf(nameA), armorMaterial(armorOf(nameA)));
-		if (k == Kit.NONE) k = Kit.detect(countsOf(nameB), armorMaterial(armorOf(nameB)));
-		if (k != Kit.NONE) detectedKit = k;
+		// Both fighters play the same kit, so judge it from their combined items and armour. A kit is kept for
+		// the rest of the round: items get used up mid-fight, and re-judging then would flip it to another kit.
+		if (detectedKit != Kit.NONE) return;
+		Map<String, Integer> a = countsOf(nameA), b = countsOf(nameB);
+		Map<String, Integer> merged = null;
+		if (a != null || b != null) {
+			merged = new java.util.HashMap<>();
+			for (Map<String, Integer> side : java.util.Arrays.asList(a, b)) {
+				if (side == null) continue;
+				for (var e : side.entrySet()) merged.merge(e.getKey(), e.getValue(), Integer::sum);
+			}
+		}
+		String armor = armorMaterial(armorOf(nameA));
+		if (armor == null) armor = armorMaterial(armorOf(nameB));
+		detectedKit = Kit.detect(merged, armor);
 	}
 
 	static float healthOf(String name) {
@@ -375,6 +387,8 @@ public final class RelayClient implements ClientModInitializer {
 	/** Replay the lead-up to the knockout, then the breakdown. */
 	private static void endRound(Minecraft mc, boolean loserIsA, String why) {
 		deathCooldown = DEATH_REARM_TICKS;
+		detectedKit = Kit.NONE; // next round may be a different kit
+		manualKit = null;
 		missingTicks = 0;
 		seenBoth = false;
 		pendingTotemIsA = null;

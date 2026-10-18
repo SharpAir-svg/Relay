@@ -31,7 +31,7 @@ Versions (Loom 1.19.1, Loader 0.19.5, Fabric API 0.161.0+26.2) are set in `gradl
 | Cart | a TNT minecart | XP bottles, totems, pearls |
 | Spear & Mace | any mace + any spear | totems, wind charges, pearls |
 | Mace | any mace (no spear) | totems, wind charges, pearls |
-| Diamond / Netherite SMP | full diamond / netherite armour + cobwebs, water bucket, oak logs, XP bottles | XP bottles, cobwebs, golden apples |
-| Netherite OP | full netherite + 12+ potions | healing potions, XP bottles, totems, other potions |
+| Diamond / Netherite SMP | full diamond / netherite armour + cobwebs or oak logs | XP bottles, cobwebs, golden apples |
+| Netherite OP | full netherite + 12+ potions (checked after SMP) | healing potions, XP bottles, totems, other potions |
 
 Every kit also shows per-piece armour durability and the total durability difference (the player minus the opponent: "+" means above on durability, "-" below). `/spectate kit <name>` overrides the label.

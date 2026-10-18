@@ -35,10 +35,12 @@ public enum Kit {
 		// Maces only appear in the mace kits, so any mace settles it, whatever else is (or isn't) carried.
 		// This check also runs before Netherite OP, which a mace kit in full netherite would otherwise match.
 		if (get(counts, "mace") > 0) return spears > 0 ? SPEAR_MACE : MACE;
-		boolean smg = get(counts, "cobweb") > 0 && get(counts, "water_bucket") > 0
-			&& get(counts, "oak_log") > 0 && get(counts, "experience_bottle") > 0;
-		if (smg && "diamond".equals(armor)) return DIAMOND_SMP;
-		if (smg && "netherite".equals(armor)) return NETHERITE_SMP;
+		// Cobwebs and oak logs are what mark an SMP kit; no other kit carries them. Requiring every SMP item
+		// at once broke as soon as one was placed or used up, and fell through to Netherite OP.
+		boolean smpItems = get(counts, "cobweb") > 0 || get(counts, "oak_log") > 0;
+		if (smpItems && "diamond".equals(armor)) return DIAMOND_SMP;
+		if (smpItems && "netherite".equals(armor)) return NETHERITE_SMP;
+		// OP is a potion kit: lots of potions and none of the SMP items.
 		int potions = get(counts, "potion_healing") + get(counts, "potion_other");
 		if ("netherite".equals(armor) && potions >= 12) return NETHERITE_OP;
 		return NONE;
