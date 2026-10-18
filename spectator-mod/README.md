@@ -16,7 +16,7 @@ Replays are **off by default** (`/spectate replay on` enables them): on a totem 
 (damage, regen, hits, accuracy, crits, winner, match score).
 
 ## Far-apart fighters
-When the two fighters are more than 100 blocks apart (usually one is off splashing XP or restocking), the usual shot of the fight would show nothing, so the camera cuts to one fighter for about 8 seconds. It prefers whoever is throwing XP bottles or eating/drinking, and otherwise alternates between them. It returns to the normal shot once they are back within about 85 blocks.
+When the two fighters are more than 100 blocks apart (usually one is off splashing XP or restocking), the usual shot of the fight would show nothing, so the camera cuts to one fighter for about 8 seconds. It prefers whoever is throwing XP bottles, eating/drinking or digging in an open shulker box, and otherwise alternates between them. It returns to the normal shot once they are back within about 85 blocks.
 
 ## Build
 Needs JDK 25. Run `./gradlew build`; the jar lands in `build/libs/relay-spectator-0.1.0.jar`.

@@ -24,6 +24,8 @@ public final class CameraDirector {
 	private static final double MARGIN = 0.45;      // clearance kept from blocks
 	private static final double MIN_DIST = 1.5;     // never closer than this to the action
 	private static final double[] BODY = { 0.5, 1.5 }; // heights on a fighter that must be visible (torso, head)
+	private static final double BODY_R = 1.4;       // camera stays at least this far from a fighter's axis...
+	private static final double BODY_LOW = -0.6, BODY_HIGH = 2.5; // ...between a little below their feet and above their head
 	private static final int FULL_SCORE = 4;        // 2 fighters x 2 points
 	private static final Vec3[] OFFSETS = offsets();
 
@@ -91,15 +93,15 @@ public final class CameraDirector {
 			Vec3 look = focus.add(0, 1.0, 0);
 			wantLook = look;
 			if (focusOffset == null || (tickStep && camPos != null && focusScore(level, clipper, camPos, focus) < 2)) {
-				focusOffset = pickFocusOffset(level, clipper, focus, look);
+				focusOffset = pickFocusOffset(level, clipper, focus, look, a, b);
 			}
-			wantCam = safe(level, clipper, look, look.add(focusOffset));
+			wantCam = place(level, clipper, look, look.add(focusOffset), a, b);
 			camRate = 4;
 			lookRate = 8;
 		} else if (pearl != null) {
 			Vec3 back = (pearlVel != null && pearlVel.lengthSqr() > 1.0E-3) ? pearlVel.normalize() : dir;
 			wantLook = pearl;
-			wantCam = safe(level, clipper, pearl, pearl.subtract(back.scale(6)).add(0, 2, 0));
+			wantCam = place(level, clipper, pearl, pearl.subtract(back.scale(6)).add(0, 2, 0), a, b);
 			camRate = 7;
 			lookRate = 12;
 			if (!following) camPos = null; // snap to the pearl shot
@@ -110,7 +112,7 @@ public final class CameraDirector {
 				heldOffset = null;
 			}
 			wantLook = mid;
-			wantCam = safe(level, clipper, mid, candidate(shot, mid, a, b, dir, perp, d));
+			wantCam = place(level, clipper, mid, candidate(shot, mid, a, b, dir, perp, d), a, b);
 
 			if (tickStep) {
 				// Judge both where we want to be and where the (smoothed) camera actually is right now.
@@ -126,7 +128,7 @@ public final class CameraDirector {
 					heldOffset = wantCam.subtract(mid);
 				}
 			}
-			if (heldOffset != null && shotTicks > 0) wantCam = safe(level, clipper, mid, mid.add(heldOffset));
+			if (heldOffset != null && shotTicks > 0) wantCam = place(level, clipper, mid, mid.add(heldOffset), a, b);
 			camRate = 2.5;
 			lookRate = 5;
 		}
@@ -136,7 +138,7 @@ public final class CameraDirector {
 		camPos = camPos == null ? wantCam : camPos.lerp(wantCam, ca);
 		lookAt = lookAt == null ? wantLook : lookAt.lerp(wantLook, la);
 		// The smoothed path can cut corners through walls, so re-validate it every frame.
-		camPos = safe(level, clipper, lookAt, camPos);
+		camPos = place(level, clipper, lookAt, camPos, a, b);
 
 		Vec3 v = lookAt.subtract(camPos);
 		double h = Math.sqrt(v.x * v.x + v.z * v.z);
@@ -160,7 +162,7 @@ public final class CameraDirector {
 	 * A close-up spot around one fighter: eight angles at two distances and two heights, plus straight above.
 	 * Prefers a clear view, then whichever is nearest the current camera so a re-pick is a small move.
 	 */
-	private Vec3 pickFocusOffset(Level level, Entity clipper, Vec3 f, Vec3 look) {
+	private Vec3 pickFocusOffset(Level level, Entity clipper, Vec3 f, Vec3 look, Vec3 a, Vec3 b) {
 		Vec3 best = new Vec3(3, 1.5, 3);
 		int bestScore = -1;
 		double bestDist = Double.MAX_VALUE;
@@ -175,7 +177,7 @@ public final class CameraDirector {
 		}
 		offs.add(new Vec3(0, 6, 0));
 		for (Vec3 o : offs) {
-			Vec3 c = safe(level, clipper, look, look.add(o));
+			Vec3 c = place(level, clipper, look, look.add(o), a, b);
 			int sc = focusScore(level, clipper, c, f) - (c.distanceTo(look) < 2.0 ? 1 : 0);
 			double dist = camPos == null ? 0 : c.distanceToSqr(camPos);
 			if (sc > bestScore || (sc == bestScore && dist < bestDist)) { best = o; bestScore = sc; bestDist = dist; }
@@ -222,7 +224,7 @@ public final class CameraDirector {
 		int bestScore = fallbackScore;
 		double bestDist = camPos == null ? 0 : fallback.distanceToSqr(camPos);
 		for (Vec3 c : cands) {
-			Vec3 s = safe(level, clipper, mid, c);
+			Vec3 s = place(level, clipper, mid, c, a, b);
 			int sc = score(level, clipper, s, mid, a, b);
 			if (dbg) log.append(sc);
 			if (sc < bestScore) continue;
@@ -244,12 +246,47 @@ public final class CameraDirector {
 			if (clear(level, clipper, cam, b.add(0, dy, 0))) n++;
 		}
 		if (cam.distanceTo(mid) < MIN_DIST) n--;
+		if (insideAnyBody(cam, a, b)) n -= 3; // never a good spot, whatever it can see
 		return n;
 	}
 
 	private static boolean clear(Level level, Entity clipper, Vec3 from, Vec3 to) {
 		return level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, clipper))
 			.getType() == HitResult.Type.MISS;
+	}
+
+
+	/** True if the point is inside the keep-out cylinder around a fighter. */
+	private static boolean insideBody(Vec3 c, Vec3 f) {
+		double dy = c.y - f.y;
+		if (dy < BODY_LOW || dy > BODY_HIGH) return false;
+		double dx = c.x - f.x, dz = c.z - f.z;
+		return dx * dx + dz * dz < BODY_R * BODY_R;
+	}
+
+	/**
+	 * A camera position that is clear of blocks AND outside both fighters' bodies. Every camera position the
+	 * director picks or moves to goes through here.
+	 */
+	private static Vec3 place(Level level, Entity clipper, Vec3 target, Vec3 cam, Vec3 a, Vec3 b) {
+		Vec3 p = safe(level, clipper, target, cam);
+		for (int pass = 0; pass < 2; pass++) { // a push away from one fighter can land in the other
+			for (Vec3 f : new Vec3[] { a, b }) {
+				if (!insideBody(p, f)) continue;
+				double dx = p.x - f.x, dz = p.z - f.z, d = Math.sqrt(dx * dx + dz * dz);
+				if (d < 1.0E-3) { dx = 1; dz = 0; d = 1; } // dead centre: any direction will do
+				Vec3 out = new Vec3(f.x + dx / d * (BODY_R + 0.1), p.y, f.z + dz / d * (BODY_R + 0.1));
+				if (!boxBlocked(level, clipper, out)) { p = out; continue; }
+				Vec3 up = new Vec3(p.x, f.y + BODY_HIGH + 0.3, p.z); // walled in at the sides: go over their head
+				if (!boxBlocked(level, clipper, up)) p = up;
+				else p = out; // cornered: stay outside the body even if it is tight
+			}
+		}
+		return p;
+	}
+
+	private static boolean insideAnyBody(Vec3 c, Vec3 a, Vec3 b) {
+		return insideBody(c, a) || insideBody(c, b);
 	}
 
 	/** A camera position that is not in, or touching, any block: pulled in from {@code cam} toward {@code target}. */

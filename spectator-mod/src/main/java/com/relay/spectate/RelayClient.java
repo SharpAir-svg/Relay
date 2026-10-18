@@ -233,6 +233,17 @@ public final class RelayClient implements ClientModInitializer {
 		return out;
 	}
 
+	/** Dev only: horizontal distance from the camera to the nearest fighter body, 99 if it is above or below both. */
+	private static double bodyDist(Vec3 c, Vec3 a, Vec3 b) {
+		double best = 99;
+		for (Vec3 f : new Vec3[] { a, b }) {
+			double dy = c.y - f.y;
+			if (dy < -0.6 || dy > 2.5) continue;
+			best = Math.min(best, Math.hypot(c.x - f.x, c.z - f.z));
+		}
+		return best;
+	}
+
 	/** Dev only (-Drelay.demo): fake a round so the HUD and breakdown can be screenshotted without a match. */
 	private static void demoTick(Minecraft mc) {
 		if (mc.player == null || mc.level == null) { demoTicks = 0; return; }
@@ -399,12 +410,25 @@ public final class RelayClient implements ClientModInitializer {
 		}
 	}
 
-	/** Splashing XP bottles, or eating/drinking: what a fighter does while recovering, usually far from the fight. */
+	/** Splashing XP bottles, eating/drinking, or digging in a shulker box: what a fighter does while restocking. */
 	private static boolean restocking(Minecraft mc, Player p) {
 		if (p.isUsingItem()) {
 			ItemStack use = p.getUseItem();
 			if (use.has(net.minecraft.core.component.DataComponents.FOOD)
 				|| use.has(net.minecraft.core.component.DataComponents.POTION_CONTENTS)) return true;
+		}
+		// An open shulker box beside them: they are digging through it for supplies.
+		int cx = p.chunkPosition().x(), cz = p.chunkPosition().z();
+		for (int dx = -1; dx <= 1; dx++) {
+			for (int dz = -1; dz <= 1; dz++) {
+				for (var be : mc.level.getChunk(cx + dx, cz + dz).getBlockEntities().values()) {
+					if (!(be instanceof net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity sb)) continue;
+					var st = sb.getAnimationStatus();
+					if (st != net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity.AnimationStatus.CLOSED
+						&& st != net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity.AnimationStatus.CLOSING
+						&& be.getBlockPos().distSqr(p.blockPosition()) < 64) return true;
+				}
+			}
 		}
 		for (Entity e : mc.level.entitiesForRendering()) { // an XP bottle that has just left their hand
 			if (e.getType() == EntityTypes.EXPERIENCE_BOTTLE && e.tickCount < 40 && e.distanceTo(p) < 6) return true;
@@ -498,7 +522,7 @@ public final class RelayClient implements ClientModInitializer {
 		if (demoCam != null && ++demoLogFrames % 15 == 0) { // dev only: numbers for the camera test
 			Vec3 e = pose.eye();
 			double m = Math.min(Math.min(e.x - 101, 108 - e.x), Math.min(Math.min(e.y + 59, -53 - e.y), Math.min(e.z - 101, 108 - e.z)));
-			System.out.printf("[relay_spectator] cam %.2f %.2f %.2f wallMargin=%.2f yaw=%.0f pitch=%.0f shot=%d want=%d actual=%d dFocus=%.2f%n", e.x, e.y, e.z, m, pose.yaw(), pose.pitch(), director.dbgShot, director.dbgWant, director.dbgActual, e.distanceTo((fId == 2 ? b : a).add(0, 1, 0)));
+			System.out.printf("[relay_spectator] cam %.2f %.2f %.2f wallMargin=%.2f yaw=%.0f pitch=%.0f shot=%d want=%d actual=%d dFocus=%.2f bodyDist=%.2f%n", e.x, e.y, e.z, m, pose.yaw(), pose.pitch(), director.dbgShot, director.dbgWant, director.dbgActual, e.distanceTo((fId == 2 ? b : a).add(0, 1, 0)), bodyDist(e, a, b));
 		}
 		applyCamera(me, pose);
 	}
