@@ -12,6 +12,7 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallba
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
 import net.minecraft.resources.Identifier;
 import net.minecraft.client.Minecraft;
@@ -52,6 +53,8 @@ public final class RelayClient implements ClientModInitializer {
 	private static int demoTicks;
 	private static int deathCooldown;
 	private static Boolean pendingTotemIsA;
+	private static boolean tickedSinceFrame; // lets the director run its slow logic once per game tick
+	private static long lastFrameNs;
 	static PlayerSkin skinA, skinB; // cached while the players are loaded
 
 	// replay
@@ -105,6 +108,7 @@ public final class RelayClient implements ClientModInitializer {
 		});
 		HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT, Identifier.fromNamespaceAndPath("relay_spectator", "top_bar"), new TopBar());
 		ClientTickEvents.END_CLIENT_TICK.register(RelayClient::tick);
+		LevelRenderEvents.START_MAIN.register(ctx -> frame(Minecraft.getInstance()));
 	}
 
 	// ------------------------------------------------------------------ HUD accessors
@@ -214,6 +218,7 @@ public final class RelayClient implements ClientModInitializer {
 		LocalPlayer me = mc.player;
 		if (me == null || mc.level == null) { active = false; cleanupReplay(); return; }
 		if (!me.isSpectator()) return; // never drag a non-spectator around
+		tickedSinceFrame = true;
 
 		if (mode == Mode.REPLAY) { tickReplay(mc, me); return; }
 
@@ -238,19 +243,42 @@ public final class RelayClient implements ClientModInitializer {
 			startReplay(mc, pa, pb, Cause.TOTEM, isA);
 			return;
 		}
+	}
 
-		// Live camera, following the nearest pearl if one is in flight.
-		Vec3 mid = pa.position().add(pb.position()).scale(0.5);
-		Entity pearl = null;
-		double best = 80 * 80;
-		for (Entity e : mc.level.entitiesForRendering()) {
-			if (e.getType() != EntityTypes.ENDER_PEARL || e.isRemoved()) continue;
-			double d = e.position().distanceToSqr(mid);
-			if (d < best) { best = d; pearl = e; }
+	/** Runs every rendered frame so the camera moves smoothly instead of in 20 Hz steps. */
+	private static void frame(Minecraft mc) {
+		long now = System.nanoTime();
+		double dt = lastFrameNs == 0 ? 0.016 : Math.min(0.1, (now - lastFrameNs) / 1.0E9);
+		lastFrameNs = now;
+		LocalPlayer me = mc.player;
+		if (!active || me == null || mc.level == null || !me.isSpectator()) return;
+		float pt = mc.getDeltaTracker().getGameTimeDeltaPartialTick(false);
+		boolean tickStep = tickedSinceFrame;
+		tickedSinceFrame = false;
+
+		Vec3 a, b, pearlPos = null, pearlVel = null;
+		if (mode == Mode.REPLAY) {
+			if (replayFrames.isEmpty() || replayIndex < 1) return;
+			// Ghosts interpolate from the previous applied frame to the latest one.
+			Recorder.Tick cur = replayFrames.get(Math.min(replayIndex, replayFrames.size()) - 1);
+			Recorder.Tick prev = replayFrames.get(Math.max(0, Math.min(replayIndex, replayFrames.size()) - 2));
+			a = prev.a().pos().lerp(cur.a().pos(), pt);
+			b = prev.b().pos().lerp(cur.b().pos(), pt);
+		} else {
+			Player pa = find(mc.level, nameA), pb = find(mc.level, nameB);
+			if (pa == null || pb == null) return;
+			a = pa.getPosition(pt);
+			b = pb.getPosition(pt);
+			// Follow the nearest ender pearl in flight.
+			Vec3 mid = a.add(b).scale(0.5);
+			double best = 80 * 80;
+			for (Entity e : mc.level.entitiesForRendering()) {
+				if (e.getType() != EntityTypes.ENDER_PEARL || e.isRemoved()) continue;
+				double d = e.position().distanceToSqr(mid);
+				if (d < best) { best = d; pearlPos = e.getPosition(pt); pearlVel = e.getDeltaMovement(); }
+			}
 		}
-		var pose = director.update(mc.level, me, pa.position(), pb.position(),
-			pearl == null ? null : pearl.position(), pearl == null ? null : pearl.getDeltaMovement());
-		applyCamera(me, pose);
+		applyCamera(me, director.update(mc.level, me, a, b, pearlPos, pearlVel, dt, tickStep));
 	}
 
 	private static void applyCamera(LocalPlayer me, CameraDirector.Pose pose) {
@@ -259,6 +287,7 @@ public final class RelayClient implements ClientModInitializer {
 		me.setYRot(pose.yaw());
 		me.setXRot(pose.pitch());
 		me.setYHeadRot(pose.yaw());
+		me.setOldPosAndRot();
 	}
 
 	// ------------------------------------------------------------------ replay
@@ -316,7 +345,6 @@ public final class RelayClient implements ClientModInitializer {
 		applyGhost(ghostA, t.a(), prevA);
 		applyGhost(ghostB, t.b(), prevB);
 		replayIndex++;
-		applyCamera(me, director.update(mc.level, me, t.a().pos(), t.b().pos(), null, null));
 	}
 
 	private static void applyGhost(RemotePlayer g, Frame f, boolean wasSwinging) {

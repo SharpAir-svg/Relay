@@ -36,8 +36,14 @@ public final class CameraDirector {
 		following = false;
 	}
 
-	/** @param pearl pearl position or null; @param pearlVel its velocity (may be null). */
-	public Pose update(Level level, Entity clipper, Vec3 a, Vec3 b, Vec3 pearl, Vec3 pearlVel) {
+	/**
+	 * Called every rendered frame.
+	 * @param pearl pearl position or null; @param pearlVel its velocity (may be null)
+	 * @param dt seconds since the previous frame (smoothing is frame-rate independent)
+	 * @param tickStep true on the first frame after a game tick; the shot timer and the
+	 *        (costlier) line-of-sight checks only advance then
+	 */
+	public Pose update(Level level, Entity clipper, Vec3 a, Vec3 b, Vec3 pearl, Vec3 pearlVel, double dt, boolean tickStep) {
 		Vec3 mid = a.add(b).scale(0.5).add(0, 1.0, 0);
 		Vec3 flat = new Vec3(b.x - a.x, 0, b.z - a.z);
 		Vec3 dir = flat.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : flat.normalize();
@@ -45,16 +51,16 @@ public final class CameraDirector {
 		double d = a.distanceTo(b);
 
 		Vec3 wantCam, wantLook;
-		double camLerp, lookLerp;
+		double camRate, lookRate; // 1/s: higher = snappier
 		if (pearl != null) {
 			Vec3 back = (pearlVel != null && pearlVel.lengthSqr() > 1.0E-3) ? pearlVel.normalize() : dir;
 			wantLook = pearl;
 			wantCam = pullIn(level, clipper, pearl, pearl.subtract(back.scale(6)).add(0, 2, 0));
-			camLerp = 0.3;
-			lookLerp = 0.45;
+			camRate = 7;
+			lookRate = 12;
 			if (!following) camPos = null; // snap to the pearl shot
 		} else {
-			if (shotTicks-- <= 0) {
+			if (tickStep && shotTicks-- <= 0) {
 				shot = (shot + 1 + (int) (Math.random() * (SHOTS - 1))) % SHOTS;
 				shotTicks = 70 + (int) (Math.random() * 50);
 			}
@@ -62,8 +68,8 @@ public final class CameraDirector {
 			wantCam = pullIn(level, clipper, mid, candidate(shot, mid, a, b, dir, perp, d));
 
 			// Cut away if the shot can't see both fighters for a few ticks.
-			blockedTicks = visibleCount(level, clipper, wantCam, a, b) < 2 ? blockedTicks + 1 : 0;
-			if (blockedTicks >= 4) {
+			if (tickStep) blockedTicks = visibleCount(level, clipper, wantCam, a, b) < 2 ? blockedTicks + 1 : 0;
+			if (tickStep && blockedTicks >= 4) {
 				int bestShot = shot, bestScore = visibleCount(level, clipper, wantCam, a, b);
 				Vec3 bestCam = wantCam;
 				for (int i = 1; i <= SHOTS && bestScore < 2; i++) {
@@ -77,13 +83,14 @@ public final class CameraDirector {
 				shotTicks = 70;
 				blockedTicks = 0;
 			}
-			camLerp = 0.1;
-			lookLerp = 0.2;
+			camRate = 2.5;
+			lookRate = 5;
 		}
 		following = pearl != null;
 
-		camPos = camPos == null ? wantCam : camPos.lerp(wantCam, camLerp);
-		lookAt = lookAt == null ? wantLook : lookAt.lerp(wantLook, lookLerp);
+		double ca = 1 - Math.exp(-camRate * dt), la = 1 - Math.exp(-lookRate * dt);
+		camPos = camPos == null ? wantCam : camPos.lerp(wantCam, ca);
+		lookAt = lookAt == null ? wantLook : lookAt.lerp(wantLook, la);
 		// The smoothed path can cut corners through walls, so re-validate it every tick.
 		camPos = pullIn(level, clipper, lookAt, camPos);
 
