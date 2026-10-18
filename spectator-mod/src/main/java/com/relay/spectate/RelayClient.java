@@ -12,6 +12,7 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallba
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.player.RemotePlayer;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -21,6 +22,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.player.PlayerSkin;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -45,6 +47,7 @@ public final class RelayClient implements ClientModInitializer {
 	private static int scoreA, scoreB;
 	private static int deathCooldown;
 	private static Boolean pendingTotemIsA;
+	private static PlayerSkin skinA, skinB; // cached while the players are loaded
 
 	// replay
 	private static List<Recorder.Tick> replayFrames = List.of();
@@ -109,6 +112,7 @@ public final class RelayClient implements ClientModInitializer {
 		recorder.clear();
 		director.reset();
 		scoreA = scoreB = 0;
+		skinA = skinB = null;
 		deathCooldown = 0;
 		pendingTotemIsA = null;
 		mode = Mode.LIVE;
@@ -157,6 +161,8 @@ public final class RelayClient implements ClientModInitializer {
 		if (pa == null || pb == null) return;
 
 		stats.tick(pa, pb);
+		if (pa instanceof AbstractClientPlayer ca) skinA = ca.getSkin();
+		if (pb instanceof AbstractClientPlayer cb) skinB = cb.getSkin();
 		recorder.record(Frame.of(pa), Frame.of(pb));
 		if (deathCooldown > 0) deathCooldown--;
 
@@ -278,7 +284,7 @@ public final class RelayClient implements ClientModInitializer {
 	private static void showBreakdown(Minecraft mc, boolean loserIsA) {
 		boolean aWon = !loserIsA;
 		if (aWon) scoreA++; else scoreB++;
-		lastBreakdown = new BreakdownScreen(nameA, nameB, kit, stats, aWon, scoreA, scoreB);
+		lastBreakdown = new BreakdownScreen(nameA, nameB, kit, stats, skinA, skinB, aWon, scoreA, scoreB);
 		stats = new Stats(); // fresh numbers for the next round
 		mc.setScreen(lastBreakdown);
 	}
