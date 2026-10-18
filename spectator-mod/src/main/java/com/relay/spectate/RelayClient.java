@@ -4,6 +4,9 @@ import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import java.util.ArrayList;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 import java.util.UUID;
 import net.fabricmc.api.ClientModInitializer;
@@ -11,6 +14,7 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
@@ -27,6 +31,9 @@ import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.player.PlayerSkin;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -43,7 +50,10 @@ public final class RelayClient implements ClientModInitializer {
 
 	// session
 	private static boolean active;
-	private static String nameA = "", nameB = "", kit = "Duel";
+	private static String nameA = "", nameB = "", manualKit;
+	private static Kit detectedKit = Kit.NONE;
+	private static final Map<String, Map<String, Integer>> summaries = new ConcurrentHashMap<>();
+	private static int netTicks;
 	private static Mode mode = Mode.LIVE;
 	private static final Recorder recorder = new Recorder();
 	private static final CameraDirector director = new CameraDirector();
@@ -86,8 +96,8 @@ public final class RelayClient implements ClientModInitializer {
 				.then(ClientCommands.literal("kit")
 					.then(ClientCommands.argument("name", StringArgumentType.greedyString())
 						.executes(c -> {
-							kit = StringArgumentType.getString(c, "name");
-							c.getSource().sendFeedback(Component.literal("Kit label set to " + kit));
+							manualKit = StringArgumentType.getString(c, "name");
+							c.getSource().sendFeedback(Component.literal("Kit label set to " + manualKit));
 							return 1;
 						})))
 				.then(ClientCommands.argument("a", StringArgumentType.word())
@@ -106,7 +116,12 @@ public final class RelayClient implements ClientModInitializer {
 				return 1;
 			}));
 		});
+		ClientPlayNetworking.registerGlobalReceiver(RelayNet.Summary.TYPE, (payload, ctx) -> {
+			if (DEMO) { System.out.println("[relay_spectator] demo: server answered for " + payload.name() + " " + payload.counts()); return; }
+			summaries.put(payload.name().toLowerCase(Locale.ROOT), payload.counts());
+		});
 		HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT, Identifier.fromNamespaceAndPath("relay_spectator", "top_bar"), new TopBar());
+		HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT, Identifier.fromNamespaceAndPath("relay_spectator", "inventory_bar"), new InventoryBar());
 		ClientTickEvents.END_CLIENT_TICK.register(RelayClient::tick);
 		LevelRenderEvents.START_MAIN.register(ctx -> frame(Minecraft.getInstance()));
 	}
@@ -119,6 +134,51 @@ public final class RelayClient implements ClientModInitializer {
 	static PlayerSkin skinA() { return skinA; }
 	static PlayerSkin skinB() { return skinB; }
 
+	static String kitLabel() { return manualKit != null ? manualKit : detectedKit.label; }
+	static java.util.List<String> trackedKeys() { return detectedKit.tracked; }
+
+	static Map<String, Integer> countsOf(String name) {
+		return summaries.get(name.toLowerCase(Locale.ROOT));
+	}
+
+	/** head, chest, legs, feet as the client sees them (equipment is synced, inventories are not). */
+	static ItemStack[] armorOf(String name) {
+		if (DEMO) return demoArmor(name.equals(nameA) ? new int[] { 302, 487, 450, 376 } : new int[] { 328, 513, 476, 402 });
+		ItemStack[] out = { ItemStack.EMPTY, ItemStack.EMPTY, ItemStack.EMPTY, ItemStack.EMPTY };
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.level == null) return out;
+		Player p = find(mc.level, name);
+		if (p != null) {
+			out[0] = p.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.HEAD);
+			out[1] = p.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.CHEST);
+			out[2] = p.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.LEGS);
+			out[3] = p.getItemBySlot(net.minecraft.world.entity.EquipmentSlot.FEET);
+		}
+		return out;
+	}
+
+	/** "netherite" / "diamond" if all four pieces are that material, else null. */
+	private static String armorMaterial(ItemStack[] armor) {
+		String mat = null;
+		for (ItemStack s : armor) {
+			if (s.isEmpty()) return null;
+			String path = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(s.getItem()).getPath();
+			String m = path.startsWith("netherite_") ? "netherite" : path.startsWith("diamond_") ? "diamond" : null;
+			if (m == null || (mat != null && !mat.equals(m))) return null;
+			mat = m;
+		}
+		return mat;
+	}
+
+	/** Every half second: ask the server for inventories and re-detect the kit (a detection sticks once made). */
+	private static void netTick() {
+		if (++netTicks % 10 != 0) return;
+		if (ClientPlayNetworking.canSend(RelayNet.Request.TYPE)) ClientPlayNetworking.send(new RelayNet.Request(nameA, nameB));
+		Kit k = Kit.detect(countsOf(nameA), armorMaterial(armorOf(nameA)));
+		if (k == Kit.NONE) k = Kit.detect(countsOf(nameB), armorMaterial(armorOf(nameB)));
+		if (k != Kit.NONE) detectedKit = k;
+	}
+
 	static float healthOf(String name) {
 		Minecraft mc = Minecraft.getInstance();
 		if (mc.level == null) return 0;
@@ -127,14 +187,30 @@ public final class RelayClient implements ClientModInitializer {
 		return DEMO ? 16f : 0f;
 	}
 
+	/** Dev only: netherite armour worn down to the given remaining durability (head, chest, legs, feet). */
+	private static ItemStack[] demoArmor(int[] remaining) {
+		Item[] items = { Items.NETHERITE_HELMET, Items.NETHERITE_CHESTPLATE, Items.NETHERITE_LEGGINGS, Items.NETHERITE_BOOTS };
+		ItemStack[] out = new ItemStack[4];
+		for (int i = 0; i < 4; i++) {
+			out[i] = new ItemStack(items[i]);
+			out[i].setDamageValue(out[i].getMaxDamage() - remaining[i]);
+		}
+		return out;
+	}
+
 	/** Dev only (-Drelay.demo): fake a round so the HUD and breakdown can be screenshotted without a match. */
 	private static void demoTick(Minecraft mc) {
 		if (mc.player == null || mc.level == null) { demoTicks = 0; return; }
 		demoTicks++;
+		if (demoTicks % 100 == 50 && ClientPlayNetworking.canSend(RelayNet.Request.TYPE)) {
+			ClientPlayNetworking.send(new RelayNet.Request(mc.player.getName().getString(), "x_Kyran_x")); // exercises the server round trip
+		}
 		if (demoTicks == 40) {
 			nameA = mc.player.getName().getString();
 			nameB = "x_Kyran_x";
-			kit = "Spear & Mace";
+			detectedKit = Kit.SPEAR_MACE;
+			summaries.put(nameA.toLowerCase(Locale.ROOT), Map.of("totem_of_undying", 0, "wind_charge", 51, "ender_pearl", 64));
+			summaries.put(nameB.toLowerCase(Locale.ROOT), Map.of("totem_of_undying", 1, "wind_charge", 51, "ender_pearl", 64));
 			seedA = 8;
 			seedB = 12;
 			scoreA = 1;
@@ -143,14 +219,14 @@ public final class RelayClient implements ClientModInitializer {
 			skinB = skinA;
 			active = true;
 		}
-		if (demoTicks == 400) {
+		if (demoTicks == Integer.getInteger("relay.demo.breakdown", 400)) {
 			Stats st = new Stats();
 			st.a.damage = 151.7; st.b.damage = 109.6;
 			st.a.regen = 136.9; st.b.regen = 220.8;
 			st.a.hits = 89; st.b.hits = 76;
 			st.a.swings = 754; st.b.swings = 667;
 			st.a.crits = 23; st.b.crits = 61;
-			lastBreakdown = new BreakdownScreen(nameA, nameB, kit, st, skinA, skinB, mc.player, true, 1, 0);
+			lastBreakdown = new BreakdownScreen(nameA, nameB, kitLabel(), st, skinA, skinB, mc.player, true, 1, 0);
 			mc.setScreenAndShow(lastBreakdown);
 		}
 	}
@@ -169,6 +245,9 @@ public final class RelayClient implements ClientModInitializer {
 			return;
 		}
 		cleanupReplay();
+		summaries.clear();
+		detectedKit = Kit.NONE;
+		manualKit = null;
 		nameA = a;
 		nameB = b;
 		stats = new Stats();
@@ -219,6 +298,7 @@ public final class RelayClient implements ClientModInitializer {
 		if (me == null || mc.level == null) { active = false; cleanupReplay(); return; }
 		if (!me.isSpectator()) return; // never drag a non-spectator around
 		tickedSinceFrame = true;
+		netTick();
 
 		if (mode == Mode.REPLAY) { tickReplay(mc, me); return; }
 
@@ -372,7 +452,7 @@ public final class RelayClient implements ClientModInitializer {
 	private static void showBreakdown(Minecraft mc, boolean loserIsA) {
 		boolean aWon = !loserIsA;
 		if (aWon) scoreA++; else scoreB++;
-		lastBreakdown = new BreakdownScreen(nameA, nameB, kit, stats, skinA, skinB, mc.level == null ? null : find(mc.level, aWon ? nameA : nameB), aWon, scoreA, scoreB);
+		lastBreakdown = new BreakdownScreen(nameA, nameB, kitLabel(), stats, skinA, skinB, mc.level == null ? null : find(mc.level, aWon ? nameA : nameB), aWon, scoreA, scoreB);
 		stats = new Stats(); // fresh numbers for the next round
 		mc.setScreenAndShow(lastBreakdown);
 	}

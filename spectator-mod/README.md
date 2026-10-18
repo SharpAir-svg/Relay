@@ -19,6 +19,18 @@ Versions (Loom 1.19.1, Loader 0.19.5, Fabric API 0.161.0+26.2) are set in `gradl
 
 ## Known limits
 - **Compiles against 26.2 but has not been run in a game yet.** Behaviour (camera feel, replay ghosts, screen layout) is untested.
+- Item counts and kit detection need this mod on the **server** too (clients never receive other players' inventories). Armour durability and held items work client-only. Only spectators can request inventories.
 - Stats are inferred from health changes on the client, so they approximate the server's numbers (crits especially).
 - Replay ghosts use the default skin with a name tag (the level rejects a duplicate UUID).
 - The camera works by moving your spectator player, so the server sees you moving.
+
+## Kit detection (needs the server install)
+| Kit | Detected when | Bar tracks |
+|---|---|---|
+| Cart | a TNT minecart | XP bottles, totems, pearls |
+| Spear & Mace | Mace kit + any spear | totems, wind charges, pearls |
+| Mace | 2+ maces, wind charges, pearls, elytra | totems, wind charges, pearls |
+| Diamond / Netherite SMP | full diamond / netherite armour + cobwebs, water bucket, oak logs, XP bottles | XP bottles, cobwebs, golden apples |
+| Netherite OP | full netherite + 12+ potions | healing potions, XP bottles, totems, other potions |
+
+Every kit also shows per-piece armour durability and the total durability lead. `/spectate kit <name>` overrides the label.
