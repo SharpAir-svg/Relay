@@ -32,6 +32,8 @@ public final class CameraDirector {
 	private int shot, shotTicks, blockedTicks;
 	private boolean following;
 	int dbgShot, dbgWant, dbgActual; // read by the dev camera test
+	private int lastFocusId;
+	private Vec3 focusOffset; // where the focus camera sits relative to the focused fighter
 	private Vec3 heldOffset; // a blocked-view fix, held relative to the fighters for a moment
 
 	/** The camera box corners, face centres and centre: rays from all of them must clear for the camera to be safe. */
@@ -53,6 +55,8 @@ public final class CameraDirector {
 		shotTicks = 0;
 		blockedTicks = 0;
 		heldOffset = null;
+		focusOffset = null;
+		lastFocusId = 0;
 		following = false;
 	}
 
@@ -62,8 +66,11 @@ public final class CameraDirector {
 	 * @param dt seconds since the previous frame (smoothing is frame-rate independent)
 	 * @param tickStep true on the first frame after a game tick; the shot timer and the
 	 *        (costlier) visibility search only advance then
+	 * @param focus when non-null, close-up on this one fighter instead of framing the fight; {@code focusId}
+	 *        says which (1 or 2) so a change of subject is a cut rather than a long fly-over
 	 */
-	public Pose update(Level level, Entity clipper, Vec3 a, Vec3 b, Vec3 pearl, Vec3 pearlVel, double dt, boolean tickStep) {
+	public Pose update(Level level, Entity clipper, Vec3 a, Vec3 b, Vec3 pearl, Vec3 pearlVel, Vec3 focus, int focusId,
+			double dt, boolean tickStep) {
 		Vec3 mid = a.add(b).scale(0.5).add(0, 1.0, 0);
 		Vec3 flat = new Vec3(b.x - a.x, 0, b.z - a.z);
 		Vec3 dir = flat.lengthSqr() < 1.0E-4 ? new Vec3(1, 0, 0) : flat.normalize();
@@ -72,7 +79,24 @@ public final class CameraDirector {
 
 		Vec3 wantCam, wantLook;
 		double camRate, lookRate; // 1/s: higher = snappier
-		if (pearl != null) {
+		if (focusId != lastFocusId) { // new subject, or back to the fight: cut, don't fly across the map
+			camPos = null;
+			lookAt = null;
+			focusOffset = null;
+			heldOffset = null;
+			shotTicks = 0;
+			lastFocusId = focusId;
+		}
+		if (focus != null) {
+			Vec3 look = focus.add(0, 1.0, 0);
+			wantLook = look;
+			if (focusOffset == null || (tickStep && camPos != null && focusScore(level, clipper, camPos, focus) < 2)) {
+				focusOffset = pickFocusOffset(level, clipper, focus, look);
+			}
+			wantCam = safe(level, clipper, look, look.add(focusOffset));
+			camRate = 4;
+			lookRate = 8;
+		} else if (pearl != null) {
 			Vec3 back = (pearlVel != null && pearlVel.lengthSqr() > 1.0E-3) ? pearlVel.normalize() : dir;
 			wantLook = pearl;
 			wantCam = safe(level, clipper, pearl, pearl.subtract(back.scale(6)).add(0, 2, 0));
@@ -122,6 +146,41 @@ public final class CameraDirector {
 		float diff = ((targetYaw - yaw + 540f) % 360f) - 180f;
 		yaw += diff;
 		return new Pose(camPos, yaw, Math.max(-89f, Math.min(89f, pitch)));
+	}
+
+
+	/** Visible torso and head of one fighter, 0 to 2. */
+	private static int focusScore(Level level, Entity clipper, Vec3 cam, Vec3 f) {
+		int n = 0;
+		for (double dy : BODY) if (clear(level, clipper, cam, f.add(0, dy, 0))) n++;
+		return n;
+	}
+
+	/**
+	 * A close-up spot around one fighter: eight angles at two distances and two heights, plus straight above.
+	 * Prefers a clear view, then whichever is nearest the current camera so a re-pick is a small move.
+	 */
+	private Vec3 pickFocusOffset(Level level, Entity clipper, Vec3 f, Vec3 look) {
+		Vec3 best = new Vec3(3, 1.5, 3);
+		int bestScore = -1;
+		double bestDist = Double.MAX_VALUE;
+		List<Vec3> offs = new ArrayList<>();
+		for (double r : new double[] { 5.0, 3.5 }) {
+			for (double h : new double[] { 1.5, 3.0 }) {
+				for (int i = 0; i < 8; i++) {
+					double ang = Math.toRadians(i * 45 + 20);
+					offs.add(new Vec3(Math.cos(ang) * r, h, Math.sin(ang) * r));
+				}
+			}
+		}
+		offs.add(new Vec3(0, 6, 0));
+		for (Vec3 o : offs) {
+			Vec3 c = safe(level, clipper, look, look.add(o));
+			int sc = focusScore(level, clipper, c, f) - (c.distanceTo(look) < 2.0 ? 1 : 0);
+			double dist = camPos == null ? 0 : c.distanceToSqr(camPos);
+			if (sc > bestScore || (sc == bestScore && dist < bestDist)) { best = o; bestScore = sc; bestDist = dist; }
+		}
+		return best;
 	}
 
 	private static Vec3 candidate(int shot, Vec3 mid, Vec3 a, Vec3 b, Vec3 dir, Vec3 perp, double d) {

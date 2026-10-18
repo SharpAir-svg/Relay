@@ -48,6 +48,10 @@ public final class RelayClient implements ClientModInitializer {
 	private static final int TOTEM_EVENT = 35;
 	private static final int DEATH_REARM_TICKS = 200;
 	private static final int DEATH_EVENT = 3;
+	private static final double FAR = 100;           // blocks apart before we stop framing the fight and close in on one fighter
+	private static final double FAR_RELEASE = 85;    // ...and how close they must get again before we stop (avoids flicker)
+	private static final int FOCUS_TICKS = 160;      // about 8 seconds on one fighter
+	private static final int RECOVER_STICKY = 30;    // a restock burst keeps counting for 1.5 s
 	private static final int MISSING_TICKS = 20; // a fighter gone this long (teleported, respawned) counts as out
 
 	// session
@@ -68,6 +72,11 @@ public final class RelayClient implements ClientModInitializer {
 	private static Boolean pendingTotemIsA;
 	private static Boolean pendingDeathIsA; // set by the death entity event
 	private static boolean seenBoth;
+	private static int tickCount;
+	private static int focusId;          // 0 none, 1 = fighter A, 2 = fighter B
+	private static int focusUntil;
+	private static int lastFocusPick;    // which fighter we closed in on last, so far-apart shots alternate
+	private static int recoverA = -999, recoverB = -999; // tick each fighter last looked like they were restocking
 	private static boolean replaysEnabled; // off by default: replays interrupted the live view more than they helped
 	private static int missingTicks;
 	private static boolean tickedSinceFrame; // lets the director run its slow logic once per game tick
@@ -286,6 +295,8 @@ public final class RelayClient implements ClientModInitializer {
 		pendingDeathIsA = null;
 		seenBoth = false;
 		missingTicks = 0;
+		focusId = 0;
+		recoverA = recoverB = -999;
 		mode = Mode.LIVE;
 		active = true;
 		src.sendFeedback(Component.literal("Spectating " + a + " vs " + b + ". /spectate stop to end."));
@@ -357,6 +368,9 @@ public final class RelayClient implements ClientModInitializer {
 			if (pa instanceof AbstractClientPlayer ca) skinA = ca.getSkin();
 			if (pb instanceof AbstractClientPlayer cb) skinB = cb.getSkin();
 			recorder.record(Frame.of(pa), Frame.of(pb));
+			updateFocus(mc, pa, pb);
+		} else {
+			focusId = 0;
 		}
 
 		// A round ends when a fighter dies, is put in spectator, or vanishes (teleported/respawned).
@@ -385,6 +399,43 @@ public final class RelayClient implements ClientModInitializer {
 		}
 	}
 
+	/** Splashing XP bottles, or eating/drinking: what a fighter does while recovering, usually far from the fight. */
+	private static boolean restocking(Minecraft mc, Player p) {
+		if (p.isUsingItem()) {
+			ItemStack use = p.getUseItem();
+			if (use.has(net.minecraft.core.component.DataComponents.FOOD)
+				|| use.has(net.minecraft.core.component.DataComponents.POTION_CONTENTS)) return true;
+		}
+		for (Entity e : mc.level.entitiesForRendering()) { // an XP bottle that has just left their hand
+			if (e.getType() == EntityTypes.EXPERIENCE_BOTTLE && e.tickCount < 40 && e.distanceTo(p) < 6) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Far apart (100+ blocks) the midpoint shot shows nothing, so close in on one fighter for about 8 s:
+	 * whoever is restocking, otherwise alternating between the two.
+	 */
+	private static void updateFocus(Minecraft mc, Player pa, Player pb) {
+		tickCount++;
+		if (restocking(mc, pa)) recoverA = tickCount;
+		if (restocking(mc, pb)) recoverB = tickCount;
+
+		double sep = pa.position().distanceTo(pb.position());
+		if (sep < FAR_RELEASE) { focusId = 0; return; }
+		if (focusId != 0 && tickCount < focusUntil) return; // still mid-focus
+		if (focusId == 0 && sep < FAR) return;
+
+		boolean aRec = tickCount - recoverA < RECOVER_STICKY, bRec = tickCount - recoverB < RECOVER_STICKY;
+		int pick;
+		if (aRec && !bRec) pick = 1;
+		else if (bRec && !aRec) pick = 2;
+		else pick = lastFocusPick == 1 ? 2 : 1; // both or neither: alternate
+		focusId = pick;
+		lastFocusPick = pick;
+		focusUntil = tickCount + FOCUS_TICKS;
+	}
+
 	private static boolean isOut(Player p) {
 		return p.getHealth() <= 0 || p.isDeadOrDying() || p.isSpectator();
 	}
@@ -393,6 +444,7 @@ public final class RelayClient implements ClientModInitializer {
 	private static void endRound(Minecraft mc, boolean loserIsA, String why) {
 		deathCooldown = DEATH_REARM_TICKS;
 		detectedKit = Kit.NONE; // next round may be a different kit
+		focusId = 0;
 		manualKit = null;
 		missingTicks = 0;
 		seenBoth = false;
@@ -439,11 +491,14 @@ public final class RelayClient implements ClientModInitializer {
 				if (d < best) { best = d; pearlPos = e.getPosition(pt); pearlVel = e.getDeltaMovement(); }
 			}
 		}
-		var pose = director.update(mc.level, me, a, b, pearlPos, pearlVel, dt, tickStep);
+		int fId = (mode == Mode.LIVE && demoCam == null) ? focusId : 0;
+		if (demoCam != null && System.getProperty("relay.demo.focus") != null) fId = Integer.getInteger("relay.demo.focus"); // dev only
+		Vec3 focus = fId == 1 ? a : fId == 2 ? b : null;
+		var pose = director.update(mc.level, me, a, b, pearlPos, pearlVel, focus, fId, dt, tickStep);
 		if (demoCam != null && ++demoLogFrames % 15 == 0) { // dev only: numbers for the camera test
 			Vec3 e = pose.eye();
 			double m = Math.min(Math.min(e.x - 101, 108 - e.x), Math.min(Math.min(e.y + 59, -53 - e.y), Math.min(e.z - 101, 108 - e.z)));
-			System.out.printf("[relay_spectator] cam %.2f %.2f %.2f wallMargin=%.2f yaw=%.0f pitch=%.0f shot=%d want=%d actual=%d%n", e.x, e.y, e.z, m, pose.yaw(), pose.pitch(), director.dbgShot, director.dbgWant, director.dbgActual);
+			System.out.printf("[relay_spectator] cam %.2f %.2f %.2f wallMargin=%.2f yaw=%.0f pitch=%.0f shot=%d want=%d actual=%d dFocus=%.2f%n", e.x, e.y, e.z, m, pose.yaw(), pose.pitch(), director.dbgShot, director.dbgWant, director.dbgActual, e.distanceTo((fId == 2 ? b : a).add(0, 1, 0)));
 		}
 		applyCamera(me, pose);
 	}
