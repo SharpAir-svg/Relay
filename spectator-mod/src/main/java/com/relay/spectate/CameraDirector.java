@@ -92,14 +92,15 @@ public final class CameraDirector {
 			lastFocusId = focusId;
 		}
 		if (focus != null) {
+			boolean wide = focusId >= 10; // a launched fighter: stay further back and keep up
 			Vec3 look = focus.add(0, 1.0, 0);
 			wantLook = look;
 			if (focusOffset == null || (tickStep && camPos != null && focusScore(level, clipper, camPos, focus) < 2)) {
-				focusOffset = pickFocusOffset(level, clipper, focus, look, a, b);
+				focusOffset = pickFocusOffset(level, clipper, focus, look, a, b, wide);
 			}
 			wantCam = place(level, clipper, look, look.add(focusOffset), a, b);
-			camRate = 4;
-			lookRate = 8;
+			camRate = wide ? 7 : 4;
+			lookRate = wide ? 10 : 8;
 		} else if (pearl != null) {
 			Vec3 back = (pearlVel != null && pearlVel.lengthSqr() > 1.0E-3) ? pearlVel.normalize() : dir;
 			wantLook = pearl;
@@ -164,13 +165,13 @@ public final class CameraDirector {
 	 * A close-up spot around one fighter: eight angles at two distances and two heights, plus straight above.
 	 * Prefers a clear view, then whichever is nearest the current camera so a re-pick is a small move.
 	 */
-	private Vec3 pickFocusOffset(Level level, Entity clipper, Vec3 f, Vec3 look, Vec3 a, Vec3 b) {
+	private Vec3 pickFocusOffset(Level level, Entity clipper, Vec3 f, Vec3 look, Vec3 a, Vec3 b, boolean wide) {
 		Vec3 best = new Vec3(3, 1.5, 3);
 		int bestScore = -1;
 		double bestDist = Double.MAX_VALUE;
 		List<Vec3> offs = new ArrayList<>();
-		for (double r : new double[] { 5.0, 3.5 }) {
-			for (double h : new double[] { 1.5, 3.0 }) {
+		for (double r : wide ? new double[] { 9.0, 7.0 } : new double[] { 5.0, 3.5 }) {
+			for (double h : wide ? new double[] { 3.0, 5.0 } : new double[] { 1.5, 3.0 }) {
 				for (int i = 0; i < 8; i++) {
 					double ang = Math.toRadians(i * 45 + 20);
 					offs.add(new Vec3(Math.cos(ang) * r, h, Math.sin(ang) * r));

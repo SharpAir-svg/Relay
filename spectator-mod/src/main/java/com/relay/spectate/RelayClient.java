@@ -53,6 +53,8 @@ public final class RelayClient implements ClientModInitializer {
 	private static final double FAR = 100;           // blocks apart before we stop framing the fight and close in on one fighter
 	private static final double FAR_RELEASE = 85;    // ...and how close they must get again before we stop (avoids flicker)
 	private static final int FOCUS_TICKS = 160;      // about 8 seconds on one fighter
+	private static final double FAST_SPEED = 1.0;   // blocks per tick (20 b/s) before a fighter counts as launched
+	private static final int FAST_TICKS = 50;
 	private static final int RECOVER_STICKY = 30;    // a restock burst keeps counting for 1.5 s
 	private static final int MISSING_TICKS = 20; // a fighter gone this long (teleported, respawned) counts as out
 
@@ -78,10 +80,17 @@ public final class RelayClient implements ClientModInitializer {
 	private static Boolean pendingDeathIsA; // set by the death entity event
 	private static boolean seenBoth;
 	private static int tickCount;
+	private static boolean focusWide;      // close-up on a launched fighter, from further back
+	private static int fastId, fastUntil;
+	private static Vec3 prevPosA, prevPosB;
+	static int popsA, popsB;
+	static long popAtA, popAtB;           // wall-clock ms of the last totem pop, for the on-screen flash
 	private static int focusId;          // 0 none, 1 = fighter A, 2 = fighter B
 	private static int focusUntil;
 	private static int lastFocusPick;    // which fighter we closed in on last, so far-apart shots alternate
 	private static int recoverA = -999, recoverB = -999; // tick each fighter last looked like they were restocking
+	private static boolean pearlsEnabled; // off by default: following every pearl was too busy
+	private static int replaySeconds = 10;  // clip length when replays are on
 	private static boolean replaysEnabled; // off by default: replays interrupted the live view more than they helped
 	private static int missingTicks;
 	private static boolean tickedSinceFrame; // lets the director run its slow logic once per game tick
@@ -114,7 +123,17 @@ public final class RelayClient implements ClientModInitializer {
 								c.getSource().sendFeedback(Component.literal("Seeds set to " + seedA + " / " + seedB));
 								return 1;
 							}))))
+				.then(ClientCommands.literal("pearls")
+					.then(ClientCommands.literal("on").executes(c -> { pearlsEnabled = true; c.getSource().sendFeedback(Component.literal("Pearl follow on.")); return 1; }))
+					.then(ClientCommands.literal("off").executes(c -> { pearlsEnabled = false; c.getSource().sendFeedback(Component.literal("Pearl follow off.")); return 1; })))
 				.then(ClientCommands.literal("replay")
+					.then(ClientCommands.literal("length")
+						.then(ClientCommands.argument("seconds", com.mojang.brigadier.arguments.IntegerArgumentType.integer(3, 20))
+							.executes(c -> {
+								replaySeconds = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(c, "seconds");
+								c.getSource().sendFeedback(Component.literal("Replay clips are " + replaySeconds + "s."));
+								return 1;
+							})))
 					.then(ClientCommands.literal("on").executes(c -> { replaysEnabled = true; c.getSource().sendFeedback(Component.literal("Replays on.")); return 1; }))
 					.then(ClientCommands.literal("off").executes(c -> { replaysEnabled = false; c.getSource().sendFeedback(Component.literal("Replays off.")); return 1; })))
 				.then(ClientCommands.literal("win")
@@ -170,6 +189,12 @@ public final class RelayClient implements ClientModInitializer {
 	static String nameB() { return nameB; }
 	static PlayerSkin skinA() { return skinA; }
 	static PlayerSkin skinB() { return skinB; }
+
+	/** Totems a fighter still holds, or -1 when unknown (needs the server mod). */
+	static int totemsLeft(String name) {
+		var c = countsOf(name);
+		return c == null ? -1 : c.getOrDefault("totem_of_undying", 0);
+	}
 
 	static String kitIcon() { return detectedKit.icon; }
 	static boolean manualKitSet() { return manualKit != null; }
@@ -268,6 +293,7 @@ public final class RelayClient implements ClientModInitializer {
 	private static void demoTick(Minecraft mc) {
 		if (mc.player == null || mc.level == null) { demoTicks = 0; return; }
 		demoTicks++;
+		if (demoTicks % 100 == 60) { popsA++; popAtA = System.currentTimeMillis(); } // dev only: show the pop flash
 		boolean noServer = Boolean.getBoolean("relay.demo.noServer"); // dev only: behave as if the server has no mod
 		if (noServer) serverHasMod = false;
 		if (!noServer && demoTicks % 100 == 50 && ClientPlayNetworking.canSend(RelayNet.Request.TYPE)) {
@@ -334,6 +360,11 @@ public final class RelayClient implements ClientModInitializer {
 		seenBoth = false;
 		missingTicks = 0;
 		focusId = 0;
+		focusWide = false;
+		fastUntil = 0;
+		prevPosA = prevPosB = null;
+		popsA = popsB = 0;
+		popAtA = popAtB = 0;
 		recoverA = recoverB = -999;
 		mode = Mode.LIVE;
 		active = true;
@@ -376,6 +407,7 @@ public final class RelayClient implements ClientModInitializer {
 		if (id == DEATH_EVENT) { pendingDeathIsA = isA; return; }
 		pendingTotemIsA = isA;
 		stats.totemPopped(isA);
+		if (isA) { popsA++; popAtA = System.currentTimeMillis(); } else { popsB++; popAtB = System.currentTimeMillis(); }
 	}
 
 	// ------------------------------------------------------------------ tick
@@ -455,6 +487,19 @@ public final class RelayClient implements ClientModInitializer {
 			if (use.has(net.minecraft.core.component.DataComponents.FOOD)
 				|| use.has(net.minecraft.core.component.DataComponents.POTION_CONTENTS)) return true;
 		}
+		// An open chest or barrel beside them
+		int ccx = p.chunkPosition().x(), ccz = p.chunkPosition().z();
+		for (int cdx = -1; cdx <= 1; cdx++) {
+			for (int cdz = -1; cdz <= 1; cdz++) {
+				for (var be : mc.level.getChunk(ccx + cdx, ccz + cdz).getBlockEntities().values()) {
+					if (be.getBlockPos().distSqr(p.blockPosition()) >= 64) continue;
+					if (be instanceof net.minecraft.world.level.block.entity.LidBlockEntity lid && lid.getOpenNess(0f) > 0.05f) return true;
+					var bs = be.getBlockState();
+					if (bs.getBlock() instanceof net.minecraft.world.level.block.BarrelBlock
+						&& bs.getValue(net.minecraft.world.level.block.BarrelBlock.OPEN)) return true;
+				}
+			}
+		}
 		// An open shulker box beside them: they are digging through it for supplies.
 		int cx = p.chunkPosition().x(), cz = p.chunkPosition().z();
 		for (int dx = -1; dx <= 1; dx++) {
@@ -483,8 +528,20 @@ public final class RelayClient implements ClientModInitializer {
 		if (restocking(mc, pa)) recoverA = tickCount;
 		if (restocking(mc, pb)) recoverB = tickCount;
 
+		double sa = prevPosA == null ? 0 : pa.position().distanceTo(prevPosA);
+		double sb = prevPosB == null ? 0 : pb.position().distanceTo(prevPosB);
+		prevPosA = pa.position();
+		prevPosB = pb.position();
+
 		double sep = pa.position().distanceTo(pb.position());
-		if (sep < FAR_RELEASE) { focusId = 0; return; }
+		if (sep < FAR_RELEASE) {
+			// Together: normally the fight shot. A launch (wind charge, elytra boost, big fall) is too fast for it,
+			// so follow that fighter from further back for a couple of seconds.
+			if (tickCount >= fastUntil && Math.max(sa, sb) > FAST_SPEED) { fastId = sa >= sb ? 1 : 2; fastUntil = tickCount + FAST_TICKS; }
+			if (tickCount < fastUntil) { focusId = fastId; focusWide = true; } else { focusId = 0; focusWide = false; }
+			return;
+		}
+		focusWide = false;
 		if (focusId != 0 && tickCount < focusUntil) return; // still mid-focus
 		if (focusId == 0 && sep < FAR) return;
 
@@ -506,6 +563,7 @@ public final class RelayClient implements ClientModInitializer {
 	private static void endRound(Minecraft mc, boolean loserIsA, String why) {
 		deathCooldown = DEATH_REARM_TICKS;
 		detectedKit = Kit.NONE; // next round may be a different kit
+		popsA = popsB = 0;
 		sawMace = sawSpear = false;
 		focusId = 0;
 		manualKit = null;
@@ -548,7 +606,7 @@ public final class RelayClient implements ClientModInitializer {
 			// Follow the nearest ender pearl in flight.
 			Vec3 mid = a.add(b).scale(0.5);
 			double best = 80 * 80;
-			for (Entity e : mc.level.entitiesForRendering()) {
+			if (pearlsEnabled) for (Entity e : mc.level.entitiesForRendering()) {
 				if (e.getType() != EntityTypes.ENDER_PEARL || e.isRemoved()) continue;
 				double d = e.position().distanceToSqr(mid);
 				if (d < best) { best = d; pearlPos = e.getPosition(pt); pearlVel = e.getDeltaMovement(); }
@@ -557,7 +615,8 @@ public final class RelayClient implements ClientModInitializer {
 		int fId = (mode == Mode.LIVE && demoCam == null) ? focusId : 0;
 		if (demoCam != null && System.getProperty("relay.demo.focus") != null) fId = Integer.getInteger("relay.demo.focus"); // dev only
 		Vec3 focus = fId == 1 ? a : fId == 2 ? b : null;
-		var pose = director.update(mc.level, me, a, b, pearlPos, pearlVel, focus, fId, dt, tickStep);
+		int passId = fId + (fId != 0 && focusWide && demoCam == null ? 10 : 0);
+		var pose = director.update(mc.level, me, a, b, pearlPos, pearlVel, focus, passId, dt, tickStep);
 		if (demoCam != null && ++demoLogFrames % 15 == 0) { // dev only: numbers for the camera test
 			Vec3 e = pose.eye();
 			double m = Math.min(Math.min(e.x - 101, 108 - e.x), Math.min(Math.min(e.y + 59, -53 - e.y), Math.min(e.z - 101, 108 - e.z)));
@@ -579,13 +638,15 @@ public final class RelayClient implements ClientModInitializer {
 
 	private static void startReplay(Minecraft mc, Cause cause, boolean loserIsA) {
 		List<Recorder.Tick> frames = recorder.snapshot();
+		int keep = replaySeconds * 20;
+		if (frames.size() > keep) frames = frames.subList(frames.size() - keep, frames.size());
 		if (!replaysEnabled || frames.size() < 10) {
 			if (cause == Cause.DEATH) showBreakdown(mc, loserIsA);
 			return;
 		}
 		try {
-			ghostA = spawnGhost(mc, nameA, frames.get(0).a().pos());
-			ghostB = spawnGhost(mc, nameB, frames.get(0).b().pos());
+			ghostA = spawnGhost(mc, nameA, frames.get(0).a().pos(), skinA);
+			ghostB = spawnGhost(mc, nameB, frames.get(0).b().pos(), skinB);
 		} catch (Throwable t) {
 			System.err.println("[relay_spectator] could not create replay ghosts: " + t);
 			cleanupReplay();
@@ -609,10 +670,11 @@ public final class RelayClient implements ClientModInitializer {
 			"Replay: last " + frames.size() / 20 + "s before the " + (cause == Cause.TOTEM ? "totem pop" : "knockout") + ". /replay exit to skip."));
 	}
 
-	private static RemotePlayer spawnGhost(Minecraft mc, String name, Vec3 pos) {
-		// Fresh UUID: the level refuses a second entity with the real player's UUID.
-		// Side effect: ghosts use the default skin and carry a name tag instead.
+	private static RemotePlayer spawnGhost(Minecraft mc, String name, Vec3 pos, PlayerSkin skin) {
+		// Fresh UUID: the level refuses a second entity with the real player's UUID, so the real skin is handed
+		// over directly (see AbstractClientPlayerMixin).
 		RemotePlayer g = new RemotePlayer(mc.level, new GameProfile(UUID.randomUUID(), name));
+		if (skin != null) ((GhostSkin) g).relay$setSkin(skin);
 		g.setId(-9000 - (int) (Math.random() * 1000));
 		g.setPos(pos);
 		g.setNoGravity(true);

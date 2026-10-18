@@ -16,6 +16,7 @@ import net.minecraft.world.entity.player.PlayerSkin;
 public final class TopBar implements HudElement {
 	private static final int GOLD = 0xFFD9A441, GOLD_DK = 0xFFA8741A, PANEL = 0xE8101010;
 	private static final int WHITE = 0xFFFFFFFF, GRAY = 0xFF9A9A9A;
+	private net.minecraft.world.item.ItemStack totem; // built on first use: item components aren't bound when the mod initialises
 	private static final Identifier HEART_BG = Identifier.withDefaultNamespace("hud/heart/container");
 	private static final Identifier HEART_FULL = Identifier.withDefaultNamespace("hud/heart/full");
 	private static final Identifier HEART_HALF = Identifier.withDefaultNamespace("hud/heart/half");
@@ -75,6 +76,27 @@ public final class TopBar implements HudElement {
 
 		String sub = left ? ping(mc, name) + " \u2022 Seed " + seed : "Seed " + seed + " \u2022 " + ping(mc, name);
 		scaled(g, font, sub, textX, y0 + 21, 0.9f, GRAY, !left);
+
+		// Under the hearts: totems left (when known) and how many have popped, with a flash on a fresh pop.
+		int pops = left ? RelayClient.popsA : RelayClient.popsB;
+		long popAt = left ? RelayClient.popAtA : RelayClient.popAtB;
+		int ty = y0 + 21;
+		if (System.currentTimeMillis() - popAt < 3000) {
+			scaled(g, font, "TOTEM POP!", hx, ty, 1.0f, 0xFFFF5555, false);
+		} else {
+			int tl = RelayClient.totemsLeft(name), cx2 = hx;
+			if (tl >= 0) {
+				g.pose().pushMatrix();
+				g.pose().translate(cx2, ty - 1);
+				g.pose().scale(0.7f, 0.7f);
+				if (totem == null) totem = new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.TOTEM_OF_UNDYING);
+				g.item(totem, 0, 0);
+				g.pose().popMatrix();
+				scaled(g, font, "x" + tl, cx2 + 13, ty, 0.9f, tl == 0 ? 0xFFFF5555 : WHITE, false);
+				cx2 += 13 + Math.round(font.width("x" + tl) * 0.9f) + 8;
+			}
+			if (pops > 0) scaled(g, font, pops + " popped", cx2, ty, 0.8f, GOLD, false);
+		}
 
 		// Ten hearts, nearest the centre badge.
 		float hp = RelayClient.healthOf(name);

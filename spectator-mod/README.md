@@ -10,14 +10,22 @@ A PvP-tournament-style spectator mod.
 | `/spectate stop` | Stop. |
 | `/spectate win <player>` | Manual fallback: declare the winner and run the replay and breakdown. |
 | `/spectate replay <on|off>` | Turn totem/death replays on or off (default off). |
+| `/spectate replay length <3-20>` | Replay clip length in seconds (default 10). |
+| `/spectate pearls <on\|off>` | Follow ender pearls with the camera (default off, it was too busy). |
 | `/replay exit` | Leave a replay early. |
 | `/breakdown` | Re-open the last round breakdown. |
 
 Replays are **off by default** (`/spectate replay on` enables them): on a totem pop or death you then get a replay of the previous 20 s. A **death** goes to the Round Breakdown screen (after the replay, if enabled)
 (damage, regen, hits, accuracy, crits, winner, match score).
 
+## Launches
+A fighter moving faster than about 20 blocks per second (wind charge, elytra boost, a long fall) is followed from further back for a couple of seconds, so the camera keeps up.
+
+## Totems
+Each side of the top bar shows the totems that fighter has left (server mod needed), how many they have popped, and a "TOTEM POP!" flash for three seconds after each pop.
+
 ## Far-apart fighters
-When the two fighters are more than 100 blocks apart (usually one is off splashing XP or restocking), the usual shot of the fight would show nothing, so the camera cuts to one fighter for about 8 seconds. It prefers whoever is throwing XP bottles, eating/drinking or digging in an open shulker box, and otherwise alternates between them. It returns to the normal shot once they are back within about 85 blocks.
+When the two fighters are more than 100 blocks apart (usually one is off splashing XP or restocking), the usual shot of the fight would show nothing, so the camera cuts to one fighter for about 8 seconds. It prefers whoever is throwing XP bottles, eating/drinking digging in an open shulker box, chest or barrel, and otherwise alternates between them. It returns to the normal shot once they are back within about 85 blocks.
 
 ## Build
 Needs JDK 25. Run `./gradlew build`; the jar lands in `build/libs/relay-spectator-0.1.0.jar`.
