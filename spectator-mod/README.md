@@ -7,6 +7,7 @@ A PvP-tournament-style spectator mod.
 | `/spectate <playerA> <playerB>` | Auto-directed camera on the duel (you must be in spectator mode). Cuts between side, over-the-shoulder and high shots; follows any ender pearl in flight. |
 | `/spectate kit <name>` | Label shown on the breakdown (e.g. `Spear & Mace`). |
 | `/spectate stop` | Stop. |
+| `/spectate win <player>` | Manual fallback: declare the winner and run the replay and breakdown. |
 | `/replay exit` | Leave a replay early. |
 | `/breakdown` | Re-open the last round breakdown. |
 

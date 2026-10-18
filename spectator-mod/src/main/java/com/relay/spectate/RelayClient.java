@@ -47,6 +47,8 @@ public final class RelayClient implements ClientModInitializer {
 
 	private static final int TOTEM_EVENT = 35;
 	private static final int DEATH_REARM_TICKS = 200;
+	private static final int DEATH_EVENT = 3;
+	private static final int MISSING_TICKS = 20; // a fighter gone this long (teleported, respawned) counts as out
 
 	// session
 	private static boolean active;
@@ -63,6 +65,9 @@ public final class RelayClient implements ClientModInitializer {
 	private static int demoTicks;
 	private static int deathCooldown;
 	private static Boolean pendingTotemIsA;
+	private static Boolean pendingDeathIsA; // set by the death entity event
+	private static boolean seenBoth;
+	private static int missingTicks;
 	private static boolean tickedSinceFrame; // lets the director run its slow logic once per game tick
 	private static long lastFrameNs;
 	static PlayerSkin skinA, skinB; // cached while the players are loaded
@@ -93,6 +98,10 @@ public final class RelayClient implements ClientModInitializer {
 								c.getSource().sendFeedback(Component.literal("Seeds set to " + seedA + " / " + seedB));
 								return 1;
 							}))))
+				.then(ClientCommands.literal("win")
+					.then(ClientCommands.argument("player", StringArgumentType.word())
+						.suggests((c, b) -> SharedSuggestionProvider.suggest(c.getSource().getOnlinePlayerNames(), b))
+						.executes(c -> { win(c.getSource(), StringArgumentType.getString(c, "player")); return 1; })))
 				.then(ClientCommands.literal("kit")
 					.then(ClientCommands.argument("name", StringArgumentType.greedyString())
 						.executes(c -> {
@@ -257,6 +266,9 @@ public final class RelayClient implements ClientModInitializer {
 		skinA = skinB = null;
 		deathCooldown = 0;
 		pendingTotemIsA = null;
+		pendingDeathIsA = null;
+		seenBoth = false;
+		missingTicks = 0;
 		mode = Mode.LIVE;
 		active = true;
 		src.sendFeedback(Component.literal("Spectating " + a + " vs " + b + ". /spectate stop to end."));
@@ -268,6 +280,18 @@ public final class RelayClient implements ClientModInitializer {
 		src.sendFeedback(Component.literal("Stopped spectating."));
 	}
 
+	/** Manual fallback: declare a winner and run the replay and breakdown, whatever the server did. */
+	private static void win(FabricClientCommandSource src, String winner) {
+		Minecraft mc = Minecraft.getInstance();
+		if (!active || mc.player == null) { src.sendFeedback(Component.literal("Start /spectate first.")); return; }
+		if (mode != Mode.LIVE) { src.sendFeedback(Component.literal("Finish or /replay exit the current replay first.")); return; }
+		boolean loserIsA;
+		if (winner.equalsIgnoreCase(nameA)) loserIsA = false;
+		else if (winner.equalsIgnoreCase(nameB)) loserIsA = true;
+		else { src.sendFeedback(Component.literal(winner + " isn't one of the two fighters.")); return; }
+		endRound(mc, loserIsA, "was beaten");
+	}
+
 	private static void exitReplay() {
 		if (active && mode == Mode.REPLAY) finishReplay();
 	}
@@ -276,12 +300,16 @@ public final class RelayClient implements ClientModInitializer {
 
 	/** Called from the packet mixin on the main thread. */
 	public static void onEntityEvent(Entity entity, int id) {
-		if (!active || mode != Mode.LIVE || id != TOTEM_EVENT || !(entity instanceof Player p)) return;
+		if (!active || mode != Mode.LIVE || !(entity instanceof Player p)) return;
+		if (id != TOTEM_EVENT && id != DEATH_EVENT) return;
 		String n = p.getName().getString();
-		if (n.equalsIgnoreCase(nameA)) pendingTotemIsA = true;
-		else if (n.equalsIgnoreCase(nameB)) pendingTotemIsA = false;
+		boolean isA;
+		if (n.equalsIgnoreCase(nameA)) isA = true;
+		else if (n.equalsIgnoreCase(nameB)) isA = false;
 		else return;
-		stats.totemPopped(pendingTotemIsA);
+		if (id == DEATH_EVENT) { pendingDeathIsA = isA; return; }
+		pendingTotemIsA = isA;
+		stats.totemPopped(isA);
 	}
 
 	// ------------------------------------------------------------------ tick
@@ -303,26 +331,55 @@ public final class RelayClient implements ClientModInitializer {
 		if (mode == Mode.REPLAY) { tickReplay(mc, me); return; }
 
 		Player pa = find(mc.level, nameA), pb = find(mc.level, nameB);
-		if (pa == null || pb == null) return;
-
-		stats.tick(pa, pb);
-		if (pa instanceof AbstractClientPlayer ca) skinA = ca.getSkin();
-		if (pb instanceof AbstractClientPlayer cb) skinB = cb.getSkin();
-		recorder.record(Frame.of(pa), Frame.of(pb));
 		if (deathCooldown > 0) deathCooldown--;
 
-		if (deathCooldown == 0 && (pa.getHealth() <= 0 || pb.getHealth() <= 0)) {
-			boolean loserIsA = pa.getHealth() <= 0;
-			deathCooldown = DEATH_REARM_TICKS;
-			startReplay(mc, pa, pb, Cause.DEATH, loserIsA);
+		if (pa != null && pb != null) {
+			seenBoth = true;
+			missingTicks = 0;
+			stats.tick(pa, pb);
+			if (pa instanceof AbstractClientPlayer ca) skinA = ca.getSkin();
+			if (pb instanceof AbstractClientPlayer cb) skinB = cb.getSkin();
+			recorder.record(Frame.of(pa), Frame.of(pb));
+		}
+
+		// A round ends when a fighter dies, is put in spectator, or vanishes (teleported/respawned).
+		// Servers differ in which of those they do, so any of them counts.
+		Boolean loserIsA = null;
+		String why = "";
+		if (deathCooldown == 0 && seenBoth) {
+			if (pendingDeathIsA != null) { loserIsA = pendingDeathIsA; why = "died"; }
+			else if (pa != null && isOut(pa)) { loserIsA = true; why = "is out"; }
+			else if (pb != null && isOut(pb)) { loserIsA = false; why = "is out"; }
+			else if ((pa == null) != (pb == null)) {
+				if (++missingTicks >= MISSING_TICKS) { loserIsA = pa == null; why = "left the fight"; }
+			}
+		}
+		pendingDeathIsA = null;
+		if (loserIsA != null) {
+			endRound(mc, loserIsA, why);
 			return;
 		}
+
+		if (pa == null || pb == null) return;
 		if (pendingTotemIsA != null) {
 			boolean isA = pendingTotemIsA;
 			pendingTotemIsA = null;
-			startReplay(mc, pa, pb, Cause.TOTEM, isA);
-			return;
+			startReplay(mc, Cause.TOTEM, isA);
 		}
+	}
+
+	private static boolean isOut(Player p) {
+		return p.getHealth() <= 0 || p.isDeadOrDying() || p.isSpectator();
+	}
+
+	/** Replay the lead-up to the knockout, then the breakdown. */
+	private static void endRound(Minecraft mc, boolean loserIsA, String why) {
+		deathCooldown = DEATH_REARM_TICKS;
+		missingTicks = 0;
+		seenBoth = false;
+		pendingTotemIsA = null;
+		mc.player.sendSystemMessage(Component.literal((loserIsA ? nameA : nameB) + " " + why + " - round over."));
+		startReplay(mc, Cause.DEATH, loserIsA);
 	}
 
 	/** Runs every rendered frame so the camera moves smoothly instead of in 20 Hz steps. */
@@ -372,22 +429,24 @@ public final class RelayClient implements ClientModInitializer {
 
 	// ------------------------------------------------------------------ replay
 
-	private static void startReplay(Minecraft mc, Player pa, Player pb, Cause cause, boolean loserIsA) {
+	private static void startReplay(Minecraft mc, Cause cause, boolean loserIsA) {
 		List<Recorder.Tick> frames = recorder.snapshot();
 		if (frames.size() < 10) {
 			if (cause == Cause.DEATH) showBreakdown(mc, loserIsA);
 			return;
 		}
 		try {
-			ghostA = spawnGhost(mc, pa);
-			ghostB = spawnGhost(mc, pb);
+			ghostA = spawnGhost(mc, nameA, frames.get(0).a().pos());
+			ghostB = spawnGhost(mc, nameB, frames.get(0).b().pos());
 		} catch (Throwable t) {
 			System.err.println("[relay_spectator] could not create replay ghosts: " + t);
 			cleanupReplay();
 			if (cause == Cause.DEATH) showBreakdown(mc, loserIsA);
 			return;
 		}
-		for (Player real : List.of(pa, pb)) {
+		for (String n : List.of(nameA, nameB)) {
+			Player real = find(mc.level, n);
+			if (real == null) continue;
 			hidden.add(real);
 			hiddenWas.add(real.isInvisible());
 			real.setInvisible(true);
@@ -399,16 +458,15 @@ public final class RelayClient implements ClientModInitializer {
 		mode = Mode.REPLAY;
 		director.reset();
 		mc.player.sendSystemMessage(Component.literal(
-			"Replay: last " + frames.size() / 20 + "s before the " + (cause == Cause.TOTEM ? "totem pop" : "death") + ". /replay exit to skip."));
+			"Replay: last " + frames.size() / 20 + "s before the " + (cause == Cause.TOTEM ? "totem pop" : "knockout") + ". /replay exit to skip."));
 	}
 
-	private static RemotePlayer spawnGhost(Minecraft mc, Player src) {
-		String name = src.getName().getString();
+	private static RemotePlayer spawnGhost(Minecraft mc, String name, Vec3 pos) {
 		// Fresh UUID: the level refuses a second entity with the real player's UUID.
 		// Side effect: ghosts use the default skin and carry a name tag instead.
 		RemotePlayer g = new RemotePlayer(mc.level, new GameProfile(UUID.randomUUID(), name));
 		g.setId(-9000 - (int) (Math.random() * 1000));
-		g.setPos(src.position());
+		g.setPos(pos);
 		g.setNoGravity(true);
 		g.noPhysics = true;
 		g.setCustomName(Component.literal(name));
