@@ -58,6 +58,7 @@ public final class RelayClient implements ClientModInitializer {
 	private static boolean active;
 	private static String nameA = "", nameB = "", manualKit;
 	private static Kit detectedKit = Kit.NONE;
+	private static String pickName; // who picked the kit, shown under its name
 	private static final Map<String, Map<String, Integer>> summaries = new ConcurrentHashMap<>();
 	private static int netTicks;
 	private static Mode mode = Mode.LIVE;
@@ -116,6 +117,14 @@ public final class RelayClient implements ClientModInitializer {
 					.then(ClientCommands.argument("player", StringArgumentType.word())
 						.suggests((c, b) -> SharedSuggestionProvider.suggest(c.getSource().getOnlinePlayerNames(), b))
 						.executes(c -> { win(c.getSource(), StringArgumentType.getString(c, "player")); return 1; })))
+				.then(ClientCommands.literal("pick")
+					.then(ClientCommands.argument("player", StringArgumentType.word())
+						.suggests((c, b) -> SharedSuggestionProvider.suggest(c.getSource().getOnlinePlayerNames(), b))
+						.executes(c -> {
+							pickName = StringArgumentType.getString(c, "player");
+							c.getSource().sendFeedback(Component.literal("Kit picked by " + pickName));
+							return 1;
+						})))
 				.then(ClientCommands.literal("kit")
 					.then(ClientCommands.argument("name", StringArgumentType.greedyString())
 						.executes(c -> {
@@ -145,6 +154,7 @@ public final class RelayClient implements ClientModInitializer {
 		});
 		HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT, Identifier.fromNamespaceAndPath("relay_spectator", "top_bar"), new TopBar());
 		HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT, Identifier.fromNamespaceAndPath("relay_spectator", "inventory_bar"), new InventoryBar());
+		HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT, Identifier.fromNamespaceAndPath("relay_spectator", "kit_box"), new KitBox());
 		ClientTickEvents.END_CLIENT_TICK.register(RelayClient::tick);
 		LevelRenderEvents.START_MAIN.register(ctx -> frame(Minecraft.getInstance()));
 	}
@@ -157,6 +167,9 @@ public final class RelayClient implements ClientModInitializer {
 	static PlayerSkin skinA() { return skinA; }
 	static PlayerSkin skinB() { return skinB; }
 
+	static String kitIcon() { return detectedKit.icon; }
+	static boolean manualKitSet() { return manualKit != null; }
+	static String pickName() { return pickName; }
 	static String kitLabel() { return manualKit != null ? manualKit : detectedKit.label; }
 	static java.util.List<String> trackedKeys() { return detectedKit.tracked; }
 
@@ -253,8 +266,9 @@ public final class RelayClient implements ClientModInitializer {
 		}
 		if (demoTicks == 40) {
 			nameA = mc.player.getName().getString();
-			nameB = "x_Kyran_x";
-			detectedKit = Kit.SPEAR_MACE;
+			nameB = System.getProperty("relay.demo.nameB", "x_Kyran_x"); // dev only
+			detectedKit = Kit.valueOf(System.getProperty("relay.demo.kit", "SPEAR_MACE")); // dev only
+			pickName = "x_Kyran_x";
 			summaries.put(nameA.toLowerCase(Locale.ROOT), Map.of("totem_of_undying", 0, "wind_charge", 51, "ender_pearl", 64));
 			summaries.put(nameB.toLowerCase(Locale.ROOT), Map.of("totem_of_undying", 1, "wind_charge", 51, "ender_pearl", 64));
 			seedA = 8;
@@ -294,6 +308,7 @@ public final class RelayClient implements ClientModInitializer {
 		summaries.clear();
 		detectedKit = Kit.NONE;
 		manualKit = null;
+		pickName = null;
 		nameA = a;
 		nameB = b;
 		stats = new Stats();
@@ -522,7 +537,7 @@ public final class RelayClient implements ClientModInitializer {
 		if (demoCam != null && ++demoLogFrames % 15 == 0) { // dev only: numbers for the camera test
 			Vec3 e = pose.eye();
 			double m = Math.min(Math.min(e.x - 101, 108 - e.x), Math.min(Math.min(e.y + 59, -53 - e.y), Math.min(e.z - 101, 108 - e.z)));
-			System.out.printf("[relay_spectator] cam %.2f %.2f %.2f wallMargin=%.2f yaw=%.0f pitch=%.0f shot=%d want=%d actual=%d dFocus=%.2f bodyDist=%.2f%n", e.x, e.y, e.z, m, pose.yaw(), pose.pitch(), director.dbgShot, director.dbgWant, director.dbgActual, e.distanceTo((fId == 2 ? b : a).add(0, 1, 0)), bodyDist(e, a, b));
+			System.out.printf("[relay_spectator] cam %.2f %.2f %.2f wallMargin=%.2f yaw=%.0f pitch=%.0f shot=%d want=%d actual=%d dFocus=%.2f bodyDist=%.2f inBlock=%d%n", e.x, e.y, e.z, m, pose.yaw(), pose.pitch(), director.dbgShot, director.dbgWant, director.dbgActual, e.distanceTo((fId == 2 ? b : a).add(0, 1, 0)), bodyDist(e, a, b), CameraDirector.inVisibleBlock(mc.level, e) ? 1 : 0);
 		}
 		applyCamera(me, pose);
 	}

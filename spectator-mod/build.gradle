@@ -24,6 +24,8 @@ loom {
 				programArgs '--quickPlayMultiplayer', 'localhost:25565', '--width', '1280', '--height', '720', '--username', 'RelayTest'
 				property 'relay.demo', '1'
 				property 'relay.demo.breakdown', '1500'
+				if (project.hasProperty('nameBTest')) property 'relay.demo.nameB', project.property('nameBTest')
+				if (project.hasProperty('kitTest')) property 'relay.demo.kit', project.property('kitTest')
 				if (project.hasProperty('focusTest')) property 'relay.demo.focus', project.property('focusTest')
 				if (project.hasProperty('camTest')) property 'relay.demo.cam', project.property('camTest')
 			}

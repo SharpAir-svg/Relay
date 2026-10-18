@@ -20,6 +20,11 @@ public final class TopBar implements HudElement {
 	private static final Identifier HEART_FULL = Identifier.withDefaultNamespace("hud/heart/full");
 	private static final Identifier HEART_HALF = Identifier.withDefaultNamespace("hud/heart/half");
 
+	/** Width of the bar; capped so a kit box fits beside it on typical screens. */
+	static int barWidth(int guiWidth) {
+		return Math.min(guiWidth - 16, 440);
+	}
+
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor g, DeltaTracker tracker) {
 		if (!RelayClient.hudVisible()) return;
@@ -27,7 +32,7 @@ public final class TopBar implements HudElement {
 		Font font = mc.font;
 		int W = mc.getWindow().getGuiScaledWidth();
 
-		int barW = Math.min(W - 16, 460), x0 = (W - barW) / 2, y0 = 3, h = 34;
+		int barW = barWidth(W), x0 = (W - barW) / 2, y0 = 3, h = 34;
 		int cx = W / 2;
 		fill(g, x0 - 2, y0 - 2, x0 + barW + 2, y0 + h + 2, GOLD);
 		fill(g, x0, y0, x0 + barW, y0 + h, PANEL);
@@ -61,15 +66,18 @@ public final class TopBar implements HudElement {
 		else fill(g, headX, y0 + 4, headX + head, y0 + 4 + head, GOLD_DK);
 
 		int textX = left ? headX + head + 5 : headX - 5;
-		scaled(g, font, name.toUpperCase(), textX, y0 + 4, 1.4f, WHITE, !left);
+		// The name gets the room between the head and the hearts, and shrinks to fit rather than running into them.
+		int step = 8, total = 10 * step;
+		int hx = left ? cx - 36 - total : cx + 36;
+		float room = left ? hx - 4 - textX : textX - (hx + total + 4);
+		float nameScale = Math.max(0.6f, Math.min(1.4f, room / Math.max(1, font.width(name.toUpperCase()))));
+		scaled(g, font, name.toUpperCase(), textX, y0 + 4 + Math.round((1.4f - nameScale) * 4), nameScale, WHITE, !left);
 
-		String sub = left ? ping(mc, name) + " • Seed " + seed : "Seed " + seed + " • " + ping(mc, name);
+		String sub = left ? ping(mc, name) + " \u2022 Seed " + seed : "Seed " + seed + " \u2022 " + ping(mc, name);
 		scaled(g, font, sub, textX, y0 + 21, 0.9f, GRAY, !left);
 
 		// Ten hearts, nearest the centre badge.
 		float hp = RelayClient.healthOf(name);
-		int step = 8, total = 10 * step;
-		int hx = left ? cx - 36 - total : cx + 36;
 		for (int i = 0; i < 10; i++) {
 			int x = hx + i * step, y = y0 + 8;
 			g.blitSprite(RenderPipelines.GUI_TEXTURED, HEART_BG, x, y, 9, 9);

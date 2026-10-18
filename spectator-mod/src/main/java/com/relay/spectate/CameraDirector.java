@@ -2,9 +2,11 @@ package com.relay.spectate;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -266,23 +268,35 @@ public final class CameraDirector {
 
 	/**
 	 * A camera position that is clear of blocks AND outside both fighters' bodies. Every camera position the
-	 * director picks or moves to goes through here.
+	 * director picks or moves to goes through here. Blocks win over bodies: if the only way out of a body is
+	 * into a wall, it stays where the walls allow.
 	 */
 	private static Vec3 place(Level level, Entity clipper, Vec3 target, Vec3 cam, Vec3 a, Vec3 b) {
 		Vec3 p = safe(level, clipper, target, cam);
 		for (int pass = 0; pass < 2; pass++) { // a push away from one fighter can land in the other
 			for (Vec3 f : new Vec3[] { a, b }) {
 				if (!insideBody(p, f)) continue;
-				double dx = p.x - f.x, dz = p.z - f.z, d = Math.sqrt(dx * dx + dz * dz);
-				if (d < 1.0E-3) { dx = 1; dz = 0; d = 1; } // dead centre: any direction will do
-				Vec3 out = new Vec3(f.x + dx / d * (BODY_R + 0.1), p.y, f.z + dz / d * (BODY_R + 0.1));
-				if (!boxBlocked(level, clipper, out)) { p = out; continue; }
-				Vec3 up = new Vec3(p.x, f.y + BODY_HIGH + 0.3, p.z); // walled in at the sides: go over their head
-				if (!boxBlocked(level, clipper, up)) p = up;
-				else p = out; // cornered: stay outside the body even if it is tight
+				Vec3 moved = escapeBody(level, clipper, p, f, a, b);
+				if (moved != null) p = moved;
 			}
 		}
 		return p;
+	}
+
+	/** The nearest free spot outside a fighter's body: around them (nearest direction first), else above their head. */
+	private static Vec3 escapeBody(Level level, Entity clipper, Vec3 p, Vec3 f, Vec3 a, Vec3 b) {
+		double base = Math.atan2(p.z - f.z, p.x - f.x);
+		if (Math.hypot(p.x - f.x, p.z - f.z) < 1.0E-3) base = 0;
+		for (double r : new double[] { BODY_R + 0.1, BODY_R + 0.8, BODY_R + 1.8 }) {
+			for (int k = 0; k < 8; k++) {
+				double ang = base + (k % 2 == 0 ? 1 : -1) * Math.ceil(k / 2.0) * Math.PI / 4;
+				Vec3 out = new Vec3(f.x + Math.cos(ang) * r, p.y, f.z + Math.sin(ang) * r);
+				if (!boxBlocked(level, clipper, out) && !insideAnyBody(out, a, b)) return out;
+			}
+		}
+		Vec3 up = new Vec3(p.x, f.y + BODY_HIGH + 0.3, p.z);
+		if (!boxBlocked(level, clipper, up) && !insideAnyBody(up, a, b)) return up;
+		return null;
 	}
 
 	private static boolean insideAnyBody(Vec3 c, Vec3 a, Vec3 b) {
@@ -303,7 +317,26 @@ public final class CameraDirector {
 
 	private static boolean boxBlocked(Level level, Entity clipper, Vec3 p) {
 		AABB box = new AABB(p, p).inflate(MARGIN * 0.8);
-		return level.getBlockCollisions(clipper, box).iterator().hasNext();
+		if (level.getBlockCollisions(clipper, box).iterator().hasNext()) return true;
+		return inVisibleBlock(level, p);
+	}
+
+	/**
+	 * Any block with a visible shape around the camera, collision or not. Cobwebs, vines, grass and snow
+	 * layers can't be walked into but would still fill the screen; the ray tests (collision shapes) miss them.
+	 */
+	static boolean inVisibleBlock(Level level, Vec3 p) {
+		double m = 0.3;
+		for (int i = 0; i < 9; i++) {
+			double dx = i == 8 ? 0 : ((i & 1) == 0 ? -m : m);
+			double dy = i == 8 ? 0 : ((i & 2) == 0 ? -m : m);
+			double dz = i == 8 ? 0 : ((i & 4) == 0 ? -m : m);
+			BlockPos bp = BlockPos.containing(p.x + dx, p.y + dy, p.z + dz);
+			BlockState st = level.getBlockState(bp);
+			if (st.isAir() || !st.getFluidState().isEmpty()) continue;
+			if (!st.getShape(level, bp).isEmpty()) return true;
+		}
+		return false;
 	}
 
 	/**

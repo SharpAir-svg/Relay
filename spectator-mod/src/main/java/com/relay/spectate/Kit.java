@@ -5,20 +5,23 @@ import java.util.Map;
 
 /** Works out which tournament kit is being played from what the fighters carry and wear. */
 public enum Kit {
-	NONE("Duel", List.of()),
-	MACE("Mace", List.of("totem_of_undying", "wind_charge", "ender_pearl")),
-	SPEAR_MACE("Spear & Mace", List.of("totem_of_undying", "wind_charge", "ender_pearl")),
-	CART("Cart", List.of("experience_bottle", "totem_of_undying", "ender_pearl")),
-	NETHERITE_OP("Netherite OP", List.of("potion_healing", "experience_bottle", "totem_of_undying", "potion_other")),
-	DIAMOND_SMP("Diamond SMP", List.of("experience_bottle", "cobweb", "golden_apple")),
-	NETHERITE_SMP("Netherite SMP", List.of("experience_bottle", "cobweb", "golden_apple"));
+	NONE("Duel", null, List.of()),
+	MACE("Mace", "mace", List.of("totem_of_undying", "wind_charge", "ender_pearl")),
+	SPEAR_MACE("Spear & Mace", "netherite_spear", List.of("totem_of_undying", "wind_charge", "ender_pearl")),
+	CART("Cart", "tnt_minecart", List.of("experience_bottle", "totem_of_undying", "ender_pearl")),
+	NETHERITE_OP("Netherite OP", "splash_potion", List.of("potion_healing", "experience_bottle", "totem_of_undying", "potion_other")),
+	DIAMOND_SMP("Diamond SMP", "diamond_chestplate", List.of("experience_bottle", "cobweb", "golden_apple")),
+	NETHERITE_SMP("Netherite SMP", "netherite_chestplate", List.of("experience_bottle", "cobweb", "golden_apple"));
 
 	public final String label;
+	/** Item path used as the kit's icon, or null when there is none. */
+	public final String icon;
 	/** Count keys shown on the inventory bar, in order (item paths, or potion_healing / potion_other). */
 	public final List<String> tracked;
 
-	Kit(String label, List<String> tracked) {
+	Kit(String label, String icon, List<String> tracked) {
 		this.label = label;
+		this.icon = icon;
 		this.tracked = tracked;
 	}
 
