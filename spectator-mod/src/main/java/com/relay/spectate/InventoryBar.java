@@ -51,9 +51,9 @@ public final class InventoryBar implements HudElement {
 
 		ItemStack[] armA = RelayClient.armorOf(RelayClient.nameA()), armB = RelayClient.armorOf(RelayClient.nameB());
 		int remA = total(armA), remB = total(armB);
-		// Shown as the opponent's total minus this player's: '+' next to the player who is behind on durability.
-		side(g, font, true, cx - lw / 2 - 8, y0, RelayClient.countsOf(RelayClient.nameA()), armA, remB - remA);
-		side(g, font, false, cx + lw / 2 + 8, y0, RelayClient.countsOf(RelayClient.nameB()), armB, remA - remB);
+		// Shown as this player's total minus the opponent's: '+' = above on durability, '-' = below.
+		side(g, font, true, cx - lw / 2 - 8, y0, RelayClient.countsOf(RelayClient.nameA()), armA, remA - remB);
+		side(g, font, false, cx + lw / 2 + 8, y0, RelayClient.countsOf(RelayClient.nameB()), armB, remB - remA);
 
 		String kit = RelayClient.kitLabel();
 		float kw = font.width(kit) * 0.8f;
