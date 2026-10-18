@@ -30,6 +30,18 @@ Versions (Loom 1.19.1, Loader 0.19.5, Fabric API 0.161.0+26.2) are set in `gradl
 - Replay ghosts use the default skin with a name tag (the level rejects a duplicate UUID).
 - The camera works by moving your spectator player, so the server sees you moving.
 
+## Servers without the mod
+The client mod works on any server. Only the item counts and full kit detection need the mod on the server too:
+
+| | Client only | Client + server |
+|---|---|---|
+| Camera, pearl follow, top bar, breakdown, replays | yes | yes |
+| Armour durability per piece and the difference | yes | yes |
+| Item counts on the inventory bar | no (bar says so) | yes |
+| Kit detection | Mace and Spear & Mace, from a mace held in hand; otherwise `/spectate kit` | every kit |
+
+The inventory bar shows "item counts need the mod on the server" whenever the server doesn't answer.
+
 ## Kit detection (needs the server install)
 | Kit | Detected when | Bar tracks |
 |---|---|---|

@@ -31,7 +31,9 @@ import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.player.PlayerSkin;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.Vec3;
@@ -61,6 +63,8 @@ public final class RelayClient implements ClientModInitializer {
 	private static String pickName; // who picked the kit, shown under its name
 	private static final Map<String, Map<String, Integer>> summaries = new ConcurrentHashMap<>();
 	private static int netTicks;
+	private static boolean serverHasMod; // the server answers our inventory requests, so the mod is there too
+	private static boolean sawMace, sawSpear; // held items, the only kit clue a client gets without the server
 	private static Mode mode = Mode.LIVE;
 	private static final Recorder recorder = new Recorder();
 	private static final CameraDirector director = new CameraDirector();
@@ -209,7 +213,8 @@ public final class RelayClient implements ClientModInitializer {
 	/** Every half second: ask the server for inventories and re-detect the kit (a detection sticks once made). */
 	private static void netTick() {
 		if (++netTicks % 10 != 0) return;
-		if (ClientPlayNetworking.canSend(RelayNet.Request.TYPE)) ClientPlayNetworking.send(new RelayNet.Request(nameA, nameB));
+		serverHasMod = ClientPlayNetworking.canSend(RelayNet.Request.TYPE);
+		if (serverHasMod) ClientPlayNetworking.send(new RelayNet.Request(nameA, nameB));
 		// Both fighters play the same kit, so judge it from their combined items and armour. A kit is kept for
 		// the rest of the round: items get used up mid-fight, and re-judging then would flip it to another kit.
 		if (detectedKit != Kit.NONE) return;
@@ -224,7 +229,9 @@ public final class RelayClient implements ClientModInitializer {
 		}
 		String armor = armorMaterial(armorOf(nameA));
 		if (armor == null) armor = armorMaterial(armorOf(nameB));
-		detectedKit = Kit.detect(merged, armor);
+		Kit k = Kit.detect(merged, armor);
+		if (k == Kit.NONE && merged == null) k = Kit.fromHeld(sawMace, sawSpear); // no server data: use held items
+		detectedKit = k;
 	}
 
 	static float healthOf(String name) {
@@ -261,16 +268,20 @@ public final class RelayClient implements ClientModInitializer {
 	private static void demoTick(Minecraft mc) {
 		if (mc.player == null || mc.level == null) { demoTicks = 0; return; }
 		demoTicks++;
-		if (demoTicks % 100 == 50 && ClientPlayNetworking.canSend(RelayNet.Request.TYPE)) {
+		boolean noServer = Boolean.getBoolean("relay.demo.noServer"); // dev only: behave as if the server has no mod
+		if (noServer) serverHasMod = false;
+		if (!noServer && demoTicks % 100 == 50 && ClientPlayNetworking.canSend(RelayNet.Request.TYPE)) {
 			ClientPlayNetworking.send(new RelayNet.Request(mc.player.getName().getString(), "x_Kyran_x")); // exercises the server round trip
 		}
 		if (demoTicks == 40) {
 			nameA = mc.player.getName().getString();
 			nameB = System.getProperty("relay.demo.nameB", "x_Kyran_x"); // dev only
-			detectedKit = Kit.valueOf(System.getProperty("relay.demo.kit", "SPEAR_MACE")); // dev only
+			if (!noServer) detectedKit = Kit.valueOf(System.getProperty("relay.demo.kit", "SPEAR_MACE")); // dev only
 			pickName = "x_Kyran_x";
-			summaries.put(nameA.toLowerCase(Locale.ROOT), Map.of("totem_of_undying", 0, "wind_charge", 51, "ender_pearl", 64));
-			summaries.put(nameB.toLowerCase(Locale.ROOT), Map.of("totem_of_undying", 1, "wind_charge", 51, "ender_pearl", 64));
+			if (!noServer) {
+				summaries.put(nameA.toLowerCase(Locale.ROOT), Map.of("totem_of_undying", 0, "wind_charge", 51, "ender_pearl", 64));
+				summaries.put(nameB.toLowerCase(Locale.ROOT), Map.of("totem_of_undying", 1, "wind_charge", 51, "ender_pearl", 64));
+			}
 			seedA = 8;
 			seedB = 12;
 			scoreA = 1;
@@ -307,6 +318,7 @@ public final class RelayClient implements ClientModInitializer {
 		cleanupReplay();
 		summaries.clear();
 		detectedKit = Kit.NONE;
+		sawMace = sawSpear = false;
 		manualKit = null;
 		pickName = null;
 		nameA = a;
@@ -394,6 +406,8 @@ public final class RelayClient implements ClientModInitializer {
 			if (pa instanceof AbstractClientPlayer ca) skinA = ca.getSkin();
 			if (pb instanceof AbstractClientPlayer cb) skinB = cb.getSkin();
 			recorder.record(Frame.of(pa), Frame.of(pb));
+			noteHeld(pa);
+			noteHeld(pb);
 			updateFocus(mc, pa, pb);
 		} else {
 			focusId = 0;
@@ -403,7 +417,7 @@ public final class RelayClient implements ClientModInitializer {
 		// Servers differ in which of those they do, so any of them counts.
 		Boolean loserIsA = null;
 		String why = "";
-		if (deathCooldown == 0 && seenBoth) {
+		if (deathCooldown == 0 && seenBoth && !DEMO) { // the demo fakes both fighters with one player, so skip live round-end checks
 			if (pendingDeathIsA != null) { loserIsA = pendingDeathIsA; why = "died"; }
 			else if (pa != null && isOut(pa)) { loserIsA = true; why = "is out"; }
 			else if (pb != null && isOut(pb)) { loserIsA = false; why = "is out"; }
@@ -424,6 +438,15 @@ public final class RelayClient implements ClientModInitializer {
 			startReplay(mc, Cause.TOTEM, isA);
 		}
 	}
+
+	private static void noteHeld(Player p) {
+		for (ItemStack s : new ItemStack[] { p.getMainHandItem(), p.getOffhandItem() }) {
+			if (s.getItem() == Items.MACE) sawMace = true;
+			else if (BuiltInRegistries.ITEM.getKey(s.getItem()).getPath().endsWith("_spear")) sawSpear = true;
+		}
+	}
+
+	static boolean serverHasMod() { return serverHasMod; }
 
 	/** Splashing XP bottles, eating/drinking, or digging in a shulker box: what a fighter does while restocking. */
 	private static boolean restocking(Minecraft mc, Player p) {
@@ -483,6 +506,7 @@ public final class RelayClient implements ClientModInitializer {
 	private static void endRound(Minecraft mc, boolean loserIsA, String why) {
 		deathCooldown = DEATH_REARM_TICKS;
 		detectedKit = Kit.NONE; // next round may be a different kit
+		sawMace = sawSpear = false;
 		focusId = 0;
 		manualKit = null;
 		missingTicks = 0;

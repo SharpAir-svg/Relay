@@ -56,6 +56,7 @@ public final class InventoryBar implements HudElement {
 		side(g, font, false, cx + lw / 2 + 8, y0, RelayClient.countsOf(RelayClient.nameB()), armB, remB - remA);
 
 		String kit = RelayClient.kitLabel();
+		if (!RelayClient.serverHasMod()) kit += "   \u00B7   item counts need the mod on the server";
 		float kw = font.width(kit) * 0.8f;
 		g.fill(Math.round(cx - kw / 2 - 5), y0 + H + 2, Math.round(cx + kw / 2 + 5), y0 + H + 13, PANEL);
 		text(g, font, kit, cx - kw / 2f, y0 + H + 4, 0.8f, GOLD);

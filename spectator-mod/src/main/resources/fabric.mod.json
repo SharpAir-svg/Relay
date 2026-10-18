@@ -3,7 +3,7 @@
   "id": "relay_spectator",
   "version": "${version}",
   "name": "Relay Spectator",
-  "description": "Auto-directed spectator camera, broadcast HUD, totem/death replays and a round breakdown for PvP duels. Install on the server too for inventory counts.",
+  "description": "Auto-directed spectator camera, broadcast HUD, totem/death replays and a round breakdown for PvP duels. Works on any server; install on the server too for item counts and kit detection.",
   "authors": [
     "Relay"
   ],

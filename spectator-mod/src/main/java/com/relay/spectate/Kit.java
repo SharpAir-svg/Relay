@@ -26,6 +26,15 @@ public enum Kit {
 	}
 
 	/**
+	 * Without the server mod the client never learns item counts, but it does see what fighters hold in their
+	 * hands. A mace in hand is enough for the mace kits; anything else needs the server mod or /spectate kit.
+	 */
+	public static Kit fromHeld(boolean mace, boolean spear) {
+		if (!mace) return NONE;
+		return spear ? SPEAR_MACE : MACE;
+	}
+
+	/**
 	 * @param counts item counts for one fighter (null if the server mod isn't there)
 	 * @param armor  "netherite", "diamond" or null: the material if all four pieces match
 	 */
