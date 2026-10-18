@@ -14,12 +14,11 @@ On a **totem pop** you get a replay of the previous 20 s. On a **death** you get
 (damage, regen, hits, accuracy, crits, winner, match score).
 
 ## Build
-Needs JDK 25. Run `gradle wrapper` once, then `./gradlew build`; the jar lands in `build/libs/`.
-Check `gradle.properties` versions against https://fabricmc.net/develop first.
+Needs JDK 25. Run `./gradlew build`; the jar lands in `build/libs/relay-spectator-0.1.0.jar`.
+Versions (Loom 1.19.1, Loader 0.19.5, Fabric API 0.161.0+26.2) are set in `gradle.properties`.
 
 ## Known limits
-- **Never compiled.** Written without network access to Fabric/Mojang; expect to fix a few 26.x API names. Rendering calls are
-  isolated at the top of `BreakdownScreen`; the packet hook is `mixin/ClientPacketListenerMixin`.
+- **Compiles against 26.2 but has not been run in a game yet.** Behaviour (camera feel, replay ghosts, screen layout) is untested.
 - Stats are inferred from health changes on the client, so they approximate the server's numbers (crits especially).
 - Replay ghosts use the default skin with a name tag (the level rejects a duplicate UUID).
 - The camera works by moving your spectator player, so the server sees you moving.

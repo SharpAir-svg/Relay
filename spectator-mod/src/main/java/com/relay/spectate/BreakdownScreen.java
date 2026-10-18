@@ -2,7 +2,7 @@ package com.relay.spectate;
 
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.gui.PlayerFaceExtractor;
+import net.minecraft.client.gui.components.PlayerFaceExtractor;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.PlayerSkin;
 

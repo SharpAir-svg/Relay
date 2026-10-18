@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -19,7 +19,7 @@ import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.player.PlayerSkin;
@@ -64,28 +64,28 @@ public final class RelayClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, ctx) -> {
-			dispatcher.register(ClientCommandManager.literal("spectate")
-				.then(ClientCommandManager.literal("stop").executes(c -> { stop(c.getSource()); return 1; }))
-				.then(ClientCommandManager.literal("kit")
-					.then(ClientCommandManager.argument("name", StringArgumentType.greedyString())
+			dispatcher.register(ClientCommands.literal("spectate")
+				.then(ClientCommands.literal("stop").executes(c -> { stop(c.getSource()); return 1; }))
+				.then(ClientCommands.literal("kit")
+					.then(ClientCommands.argument("name", StringArgumentType.greedyString())
 						.executes(c -> {
 							kit = StringArgumentType.getString(c, "name");
 							c.getSource().sendFeedback(Component.literal("Kit label set to " + kit));
 							return 1;
 						})))
-				.then(ClientCommandManager.argument("a", StringArgumentType.word())
+				.then(ClientCommands.argument("a", StringArgumentType.word())
 					.suggests((c, b) -> SharedSuggestionProvider.suggest(c.getSource().getOnlinePlayerNames(), b))
-					.then(ClientCommandManager.argument("b", StringArgumentType.word())
+					.then(ClientCommands.argument("b", StringArgumentType.word())
 						.suggests((c, b) -> SharedSuggestionProvider.suggest(c.getSource().getOnlinePlayerNames(), b))
 						.executes(c -> {
 							start(c.getSource(), StringArgumentType.getString(c, "a"), StringArgumentType.getString(c, "b"));
 							return 1;
 						}))));
-			dispatcher.register(ClientCommandManager.literal("replay")
-				.then(ClientCommandManager.literal("exit").executes(c -> { exitReplay(); return 1; })));
-			dispatcher.register(ClientCommandManager.literal("breakdown").executes(c -> {
+			dispatcher.register(ClientCommands.literal("replay")
+				.then(ClientCommands.literal("exit").executes(c -> { exitReplay(); return 1; })));
+			dispatcher.register(ClientCommands.literal("breakdown").executes(c -> {
 				if (lastBreakdown == null) c.getSource().sendFeedback(Component.literal("No finished round yet."));
-				else Minecraft.getInstance().schedule(() -> Minecraft.getInstance().setScreen(lastBreakdown));
+				else Minecraft.getInstance().schedule(() -> Minecraft.getInstance().setScreenAndShow(lastBreakdown));
 				return 1;
 			}));
 		});
@@ -184,7 +184,7 @@ public final class RelayClient implements ClientModInitializer {
 		Entity pearl = null;
 		double best = 80 * 80;
 		for (Entity e : mc.level.entitiesForRendering()) {
-			if (e.getType() != EntityType.ENDER_PEARL || e.isRemoved()) continue;
+			if (e.getType() != EntityTypes.ENDER_PEARL || e.isRemoved()) continue;
 			double d = e.position().distanceToSqr(mid);
 			if (d < best) { best = d; pearl = e; }
 		}
@@ -229,7 +229,7 @@ public final class RelayClient implements ClientModInitializer {
 		replayLoserIsA = loserIsA;
 		mode = Mode.REPLAY;
 		director.reset();
-		mc.gui.getChat().addMessage(Component.literal(
+		mc.player.sendSystemMessage(Component.literal(
 			"Replay: last " + frames.size() / 20 + "s before the " + (cause == Cause.TOTEM ? "totem pop" : "death") + ". /replay exit to skip."));
 	}
 
@@ -286,7 +286,7 @@ public final class RelayClient implements ClientModInitializer {
 		if (aWon) scoreA++; else scoreB++;
 		lastBreakdown = new BreakdownScreen(nameA, nameB, kit, stats, skinA, skinB, aWon, scoreA, scoreB);
 		stats = new Stats(); // fresh numbers for the next round
-		mc.setScreen(lastBreakdown);
+		mc.setScreenAndShow(lastBreakdown);
 	}
 
 	private static void cleanupReplay() {
