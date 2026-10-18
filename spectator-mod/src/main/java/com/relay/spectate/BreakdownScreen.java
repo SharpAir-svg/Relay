@@ -76,6 +76,11 @@ public final class BreakdownScreen extends Screen {
 		bigText(g, s, cx - this.font.width(s) * scale / 2f, y, scale, color);
 	}
 
+	/** Largest scale up to {@code max} at which {@code s} fits in {@code width} px. */
+	private float fit(String s, float max, float width) {
+		return Math.min(max, width / Math.max(1, this.font.width(s)));
+	}
+
 	/** Full-body render of the winner; falls back to a large head if unavailable. */
 	private void figure(GuiGraphicsExtractor g, int x1, int y1, int x2, int y2, int mx, int my, PlayerSkin skin) {
 		if (winnerEntity != null && !winnerEntity.isRemoved()) {
@@ -126,7 +131,8 @@ public final class BreakdownScreen extends Screen {
 		figure(g, lx, 38, lx + colW, bannerTop - 4, mx, my, winnerSkin);
 		fill(g, lx, bannerTop, lx + colW, bannerTop + bannerH, 0xFFF2C31E);
 		fill(g, lx, bannerTop, lx + colW / 5, bannerTop + bannerH, 0xFFFFF2B0);
-		bigCentered(g, "WINNER", lcx + colW / 10f, bannerTop + 8, 2.5f, GOLD_DK);
+		float ws = fit("WINNER", 2.5f, colW * 0.72f);
+		bigCentered(g, "WINNER", lcx + colW / 10f, bannerTop + (bannerH - 9 * ws) / 2f, ws, GOLD_DK);
 
 		// ---- right column: header, table, score -----------------------------------
 		int rx1 = W * 2 / 5, rx2 = W - Math.max(8, W / 24);
@@ -142,9 +148,12 @@ public final class BreakdownScreen extends Screen {
 		int tbottom = ty + titleH + rows * rowH;
 		frame(g, rx1, ty, rx2, tbottom);
 		fill(g, rx1, ty + titleH - 4, rx2, ty + titleH, GOLD); // gold rule under the title row
-		bigCentered(g, kit.toUpperCase(), cx, ty + 3, 1.5f, WHITE);
 		String rw = "Round Winner >";
-		text(g, rw, rx2 - 8 - this.font.width(rw), ty + 7, GOLD);
+		int rwW = this.font.width(rw);
+		text(g, rw, rx2 - 8 - rwW, ty + 7, GOLD);
+		float availW = (rx2 - 8 - rwW - 8) - (rx1 + 8);
+		float ks = fit(kit.toUpperCase(), 1.5f, availW);
+		bigCentered(g, kit.toUpperCase(), rx1 + 8 + availW / 2f, ty + (titleH - 4 - 9 * ks) / 2f, ks, WHITE);
 
 		int ry = ty + titleH;
 		row(g, ry, rx1, rx2, rowH, "Damage", f1(stats.a.damage), f1(stats.b.damage), stats.a.damage, stats.b.damage);
@@ -161,12 +170,12 @@ public final class BreakdownScreen extends Screen {
 		face(g, skinA, rx1 + 6, sy + 5, head);
 		face(g, skinB, rx2 - 6 - head, sy + 5, head);
 		int slots = Math.max(2, Math.max(scoreA, scoreB));
-		diamonds(g, cx - 32 - slots * 12, sy + 14, slots, scoreA, false);
-		diamonds(g, cx + 32, sy + 14, slots, scoreB, true);
+		diamonds(g, cx - 40 - slots * 14, sy + 14, slots, scoreA, false);
+		diamonds(g, cx + 40, sy + 14, slots, scoreB, true);
 		bigCentered(g, "PVP CHAMPS", cx, sy + 9, 1.2f, GOLD);
 		centered(g, "Match Score", cx, sy + sh + 7, GOLD);
 
-		centered(g, "Press ESC to close", cx, H - 11, GRAY);
+		centered(g, "Press ESC to close", lcx, H - 12, GRAY);
 	}
 
 	/** Filled diamond per round won, hollow for the rest; B's row fills from the left like A's mirrors. */

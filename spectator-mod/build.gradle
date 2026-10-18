@@ -16,6 +16,18 @@ dependencies {
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 }
 
+loom {
+	runs {
+		client {
+			// ./gradlew runClient -Pdemo : join a local server and fake a round for screenshots
+			if (project.hasProperty('demo')) {
+				programArgs '--quickPlayMultiplayer', 'localhost:25565', '--width', '1280', '--height', '720'
+				property 'relay.demo', '1'
+			}
+		}
+	}
+}
+
 processResources {
 	inputs.property "version", project.version
 	filesMatching("fabric.mod.json") { expand "version": inputs.properties.version }

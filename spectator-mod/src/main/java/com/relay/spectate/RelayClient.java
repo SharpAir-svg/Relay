@@ -11,6 +11,9 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
+import net.minecraft.resources.Identifier;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.player.LocalPlayer;
@@ -44,10 +47,12 @@ public final class RelayClient implements ClientModInitializer {
 	private static final Recorder recorder = new Recorder();
 	private static final CameraDirector director = new CameraDirector();
 	private static Stats stats = new Stats();
-	private static int scoreA, scoreB;
+	static int scoreA, scoreB, seedA, seedB;
+	private static final boolean DEMO = System.getProperty("relay.demo") != null; // dev-only screenshot mode
+	private static int demoTicks;
 	private static int deathCooldown;
 	private static Boolean pendingTotemIsA;
-	private static PlayerSkin skinA, skinB; // cached while the players are loaded
+	static PlayerSkin skinA, skinB; // cached while the players are loaded
 
 	// replay
 	private static List<Recorder.Tick> replayFrames = List.of();
@@ -66,6 +71,15 @@ public final class RelayClient implements ClientModInitializer {
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, ctx) -> {
 			dispatcher.register(ClientCommands.literal("spectate")
 				.then(ClientCommands.literal("stop").executes(c -> { stop(c.getSource()); return 1; }))
+				.then(ClientCommands.literal("seeds")
+					.then(ClientCommands.argument("a", com.mojang.brigadier.arguments.IntegerArgumentType.integer(1))
+						.then(ClientCommands.argument("b", com.mojang.brigadier.arguments.IntegerArgumentType.integer(1))
+							.executes(c -> {
+								seedA = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(c, "a");
+								seedB = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(c, "b");
+								c.getSource().sendFeedback(Component.literal("Seeds set to " + seedA + " / " + seedB));
+								return 1;
+							}))))
 				.then(ClientCommands.literal("kit")
 					.then(ClientCommands.argument("name", StringArgumentType.greedyString())
 						.executes(c -> {
@@ -89,7 +103,52 @@ public final class RelayClient implements ClientModInitializer {
 				return 1;
 			}));
 		});
+		HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT, Identifier.fromNamespaceAndPath("relay_spectator", "top_bar"), new TopBar());
 		ClientTickEvents.END_CLIENT_TICK.register(RelayClient::tick);
+	}
+
+	// ------------------------------------------------------------------ HUD accessors
+
+	static boolean hudVisible() { return active; }
+	static String nameA() { return nameA; }
+	static String nameB() { return nameB; }
+	static PlayerSkin skinA() { return skinA; }
+	static PlayerSkin skinB() { return skinB; }
+
+	static float healthOf(String name) {
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.level == null) return 0;
+		Player p = find(mc.level, name);
+		if (p != null) return p.getHealth();
+		return DEMO ? 16f : 0f;
+	}
+
+	/** Dev only (-Drelay.demo): fake a round so the HUD and breakdown can be screenshotted without a match. */
+	private static void demoTick(Minecraft mc) {
+		if (mc.player == null || mc.level == null) { demoTicks = 0; return; }
+		demoTicks++;
+		if (demoTicks == 40) {
+			nameA = mc.player.getName().getString();
+			nameB = "x_Kyran_x";
+			kit = "Spear & Mace";
+			seedA = 8;
+			seedB = 12;
+			scoreA = 1;
+			scoreB = 0;
+			skinA = mc.player.getSkin();
+			skinB = skinA;
+			active = true;
+		}
+		if (demoTicks == 400) {
+			Stats st = new Stats();
+			st.a.damage = 151.7; st.b.damage = 109.6;
+			st.a.regen = 136.9; st.b.regen = 220.8;
+			st.a.hits = 89; st.b.hits = 76;
+			st.a.swings = 754; st.b.swings = 667;
+			st.a.crits = 23; st.b.crits = 61;
+			lastBreakdown = new BreakdownScreen(nameA, nameB, kit, st, skinA, skinB, mc.player, true, 1, 0);
+			mc.setScreenAndShow(lastBreakdown);
+		}
 	}
 
 	// ------------------------------------------------------------------ commands
@@ -150,6 +209,7 @@ public final class RelayClient implements ClientModInitializer {
 	}
 
 	private static void tick(Minecraft mc) {
+		if (DEMO) demoTick(mc);
 		if (!active) return;
 		LocalPlayer me = mc.player;
 		if (me == null || mc.level == null) { active = false; cleanupReplay(); return; }
