@@ -46,8 +46,10 @@ public final class BreakdownScreen extends Screen {
 		g.fill(x1, y1, x2, y2, argb);
 	}
 
+	private boolean shadow = true;
+
 	private void text(GuiGraphicsExtractor g, String s, int x, int y, int color) {
-		g.text(this.font, s, x, y, color, true);
+		g.text(this.font, s, x, y, color, shadow);
 	}
 
 	private void centered(GuiGraphicsExtractor g, String s, int cx, int y, int color) {
@@ -132,7 +134,9 @@ public final class BreakdownScreen extends Screen {
 		fill(g, lx, bannerTop, lx + colW, bannerTop + bannerH, 0xFFF2C31E);
 		fill(g, lx, bannerTop, lx + colW / 5, bannerTop + bannerH, 0xFFFFF2B0);
 		float ws = fit("WINNER", 2.5f, colW * 0.72f);
+		shadow = false; // dark gold on yellow smears with a shadow
 		bigCentered(g, "WINNER", lcx + colW / 10f, bannerTop + (bannerH - 9 * ws) / 2f, ws, GOLD_DK);
+		shadow = true;
 
 		// ---- right column: header, table, score -----------------------------------
 		int rx1 = W * 2 / 5, rx2 = W - Math.max(8, W / 24);
@@ -170,8 +174,8 @@ public final class BreakdownScreen extends Screen {
 		face(g, skinA, rx1 + 6, sy + 5, head);
 		face(g, skinB, rx2 - 6 - head, sy + 5, head);
 		int slots = Math.max(2, Math.max(scoreA, scoreB));
-		diamonds(g, cx - 40 - slots * 14, sy + 14, slots, scoreA, false);
-		diamonds(g, cx + 40, sy + 14, slots, scoreB, true);
+		diamonds(g, cx - 44 - slots * 16, sy + 14, slots, scoreA, false);
+		diamonds(g, cx + 44, sy + 14, slots, scoreB, true);
 		bigCentered(g, "PVP CHAMPS", cx, sy + 9, 1.2f, GOLD);
 		centered(g, "Match Score", cx, sy + sh + 7, GOLD);
 
@@ -182,7 +186,7 @@ public final class BreakdownScreen extends Screen {
 	private void diamonds(GuiGraphicsExtractor g, int x, int y, int slots, int won, boolean mirrored) {
 		for (int i = 0; i < slots; i++) {
 			boolean filled = mirrored ? i < won : (slots - 1 - i) < won;
-			text(g, filled ? "◆" : "◇", x + i * 12, y, filled ? WHITE : GRAY);
+			bigText(g, filled ? "◆" : "◇", x + i * 16, y - 4, 2.0f, filled ? WHITE : GRAY);
 		}
 	}
 

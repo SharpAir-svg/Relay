@@ -36,15 +36,15 @@ public final class TopBar implements HudElement {
 		side(g, font, mc, false, x0 + barW, y0, cx);
 
 		// Centre badge with the match score underneath.
-		fill(g, cx - 28, y0 - 2, cx + 28, y0 + 17, GOLD_DK);
-		fill(g, cx - 26, y0, cx + 26, y0 + 15, 0xFF1A1208);
-		centered(g, font, "PVP", cx, y0 + 1, GOLD);
-		centered(g, font, "CHAMPS", cx, y0 + 7, WHITE);
+		fill(g, cx - 28, y0 - 2, cx + 28, y0 + 20, GOLD_DK);
+		fill(g, cx - 26, y0, cx + 26, y0 + 18, 0xFF1A1208);
+		centered(g, font, "PVP", cx, y0 + 2, GOLD);
+		centered(g, font, "CHAMPS", cx, y0 + 9, WHITE);
 		int slots = Math.max(2, Math.max(RelayClient.scoreA, RelayClient.scoreB));
 		for (int i = 0; i < slots; i++) {
 			boolean fa = i < RelayClient.scoreA, fb = i < RelayClient.scoreB;
-			text(g, font, fa ? "◆" : "◇", cx - 12 - (i + 1) * 9 + 9, y0 + 21, fa ? WHITE : GRAY);
-			text(g, font, fb ? "◆" : "◇", cx + 12 + i * 9, y0 + 21, fb ? WHITE : GRAY);
+			text(g, font, fa ? "◆" : "◇", cx - 12 - (i + 1) * 9 + 9, y0 + 23, fa ? WHITE : GRAY);
+			text(g, font, fb ? "◆" : "◇", cx + 12 + i * 9, y0 + 23, fb ? WHITE : GRAY);
 		}
 	}
 
