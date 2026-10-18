@@ -8,10 +8,11 @@ A PvP-tournament-style spectator mod.
 | `/spectate kit <name>` | Label shown on the breakdown (e.g. `Spear & Mace`). |
 | `/spectate stop` | Stop. |
 | `/spectate win <player>` | Manual fallback: declare the winner and run the replay and breakdown. |
+| `/spectate replay <on|off>` | Turn totem/death replays on or off (default off). |
 | `/replay exit` | Leave a replay early. |
 | `/breakdown` | Re-open the last round breakdown. |
 
-On a **totem pop** you get a replay of the previous 20 s. On a **death** you get the same replay, then the Round Breakdown screen
+Replays are **off by default** (`/spectate replay on` enables them): on a totem pop or death you then get a replay of the previous 20 s. A **death** goes to the Round Breakdown screen (after the replay, if enabled)
 (damage, regen, hits, accuracy, crits, winner, match score).
 
 ## Build
@@ -31,7 +32,7 @@ Versions (Loom 1.19.1, Loader 0.19.5, Fabric API 0.161.0+26.2) are set in `gradl
 | Cart | a TNT minecart | XP bottles, totems, pearls |
 | Spear & Mace | any mace + any spear | totems, wind charges, pearls |
 | Mace | any mace (no spear) | totems, wind charges, pearls |
-| Diamond / Netherite SMP | full diamond / netherite armour + cobwebs or oak logs | XP bottles, cobwebs, golden apples |
+| Diamond / Netherite SMP | full diamond / netherite armour + cobwebs | XP bottles, cobwebs, golden apples |
 | Netherite OP | full netherite + 12+ potions (checked after SMP) | healing potions, XP bottles, totems, other potions |
 
 Every kit also shows per-piece armour durability and the total durability difference (the player minus the opponent: "+" means above on durability, "-" below). `/spectate kit <name>` overrides the label.

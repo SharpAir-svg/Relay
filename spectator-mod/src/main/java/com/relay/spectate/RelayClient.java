@@ -67,6 +67,7 @@ public final class RelayClient implements ClientModInitializer {
 	private static Boolean pendingTotemIsA;
 	private static Boolean pendingDeathIsA; // set by the death entity event
 	private static boolean seenBoth;
+	private static boolean replaysEnabled; // off by default: replays interrupted the live view more than they helped
 	private static int missingTicks;
 	private static boolean tickedSinceFrame; // lets the director run its slow logic once per game tick
 	private static long lastFrameNs;
@@ -98,6 +99,9 @@ public final class RelayClient implements ClientModInitializer {
 								c.getSource().sendFeedback(Component.literal("Seeds set to " + seedA + " / " + seedB));
 								return 1;
 							}))))
+				.then(ClientCommands.literal("replay")
+					.then(ClientCommands.literal("on").executes(c -> { replaysEnabled = true; c.getSource().sendFeedback(Component.literal("Replays on.")); return 1; }))
+					.then(ClientCommands.literal("off").executes(c -> { replaysEnabled = false; c.getSource().sendFeedback(Component.literal("Replays off.")); return 1; })))
 				.then(ClientCommands.literal("win")
 					.then(ClientCommands.argument("player", StringArgumentType.word())
 						.suggests((c, b) -> SharedSuggestionProvider.suggest(c.getSource().getOnlinePlayerNames(), b))
@@ -445,7 +449,7 @@ public final class RelayClient implements ClientModInitializer {
 
 	private static void startReplay(Minecraft mc, Cause cause, boolean loserIsA) {
 		List<Recorder.Tick> frames = recorder.snapshot();
-		if (frames.size() < 10) {
+		if (!replaysEnabled || frames.size() < 10) {
 			if (cause == Cause.DEATH) showBreakdown(mc, loserIsA);
 			return;
 		}
