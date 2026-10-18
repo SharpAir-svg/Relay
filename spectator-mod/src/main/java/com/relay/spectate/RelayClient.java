@@ -63,6 +63,7 @@ public final class RelayClient implements ClientModInitializer {
 	static int scoreA, scoreB, seedA, seedB;
 	private static final boolean DEMO = System.getProperty("relay.demo") != null; // dev-only screenshot mode
 	private static int demoTicks;
+	private static int demoLogFrames;
 	private static int deathCooldown;
 	private static Boolean pendingTotemIsA;
 	private static Boolean pendingDeathIsA; // set by the death entity event
@@ -412,7 +413,12 @@ public final class RelayClient implements ClientModInitializer {
 		tickedSinceFrame = false;
 
 		Vec3 a, b, pearlPos = null, pearlVel = null;
-		if (mode == Mode.REPLAY) {
+		String demoCam = DEMO ? System.getProperty("relay.demo.cam") : null; // dev only: film two fixed points
+		if (demoCam != null) {
+			String[] c = demoCam.split(",");
+			a = new Vec3(Double.parseDouble(c[0]), Double.parseDouble(c[1]), Double.parseDouble(c[2]));
+			b = a.add(3, 0, 0);
+		} else if (mode == Mode.REPLAY) {
 			if (replayFrames.isEmpty() || replayIndex < 1) return;
 			// Ghosts interpolate from the previous applied frame to the latest one.
 			Recorder.Tick cur = replayFrames.get(Math.min(replayIndex, replayFrames.size()) - 1);
@@ -433,7 +439,13 @@ public final class RelayClient implements ClientModInitializer {
 				if (d < best) { best = d; pearlPos = e.getPosition(pt); pearlVel = e.getDeltaMovement(); }
 			}
 		}
-		applyCamera(me, director.update(mc.level, me, a, b, pearlPos, pearlVel, dt, tickStep));
+		var pose = director.update(mc.level, me, a, b, pearlPos, pearlVel, dt, tickStep);
+		if (demoCam != null && ++demoLogFrames % 15 == 0) { // dev only: numbers for the camera test
+			Vec3 e = pose.eye();
+			double m = Math.min(Math.min(e.x - 101, 108 - e.x), Math.min(Math.min(e.y + 59, -53 - e.y), Math.min(e.z - 101, 108 - e.z)));
+			System.out.printf("[relay_spectator] cam %.2f %.2f %.2f wallMargin=%.2f yaw=%.0f pitch=%.0f shot=%d want=%d actual=%d%n", e.x, e.y, e.z, m, pose.yaw(), pose.pitch(), director.dbgShot, director.dbgWant, director.dbgActual);
+		}
+		applyCamera(me, pose);
 	}
 
 	private static void applyCamera(LocalPlayer me, CameraDirector.Pose pose) {

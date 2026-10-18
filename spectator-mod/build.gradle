@@ -24,6 +24,7 @@ loom {
 				programArgs '--quickPlayMultiplayer', 'localhost:25565', '--width', '1280', '--height', '720', '--username', 'RelayTest'
 				property 'relay.demo', '1'
 				property 'relay.demo.breakdown', '1500'
+				if (project.hasProperty('camTest')) property 'relay.demo.cam', project.property('camTest')
 			}
 		}
 	}
