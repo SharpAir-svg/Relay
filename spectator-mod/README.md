@@ -29,8 +29,8 @@ Versions (Loom 1.19.1, Loader 0.19.5, Fabric API 0.161.0+26.2) are set in `gradl
 | Kit | Detected when | Bar tracks |
 |---|---|---|
 | Cart | a TNT minecart | XP bottles, totems, pearls |
-| Spear & Mace | Mace kit + any spear | totems, wind charges, pearls |
-| Mace | 2+ maces, wind charges, pearls, elytra | totems, wind charges, pearls |
+| Spear & Mace | any mace + any spear | totems, wind charges, pearls |
+| Mace | any mace (no spear) | totems, wind charges, pearls |
 | Diamond / Netherite SMP | full diamond / netherite armour + cobwebs, water bucket, oak logs, XP bottles | XP bottles, cobwebs, golden apples |
 | Netherite OP | full netherite + 12+ potions | healing potions, XP bottles, totems, other potions |
 

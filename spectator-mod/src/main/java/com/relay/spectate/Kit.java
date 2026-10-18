@@ -32,9 +32,9 @@ public enum Kit {
 		for (var e : counts.entrySet()) if (e.getKey().endsWith("_spear")) spears += e.getValue();
 
 		if (get(counts, "tnt_minecart") > 0) return CART;
-		boolean maceKit = get(counts, "mace") >= 2 && get(counts, "wind_charge") > 0
-			&& get(counts, "ender_pearl") > 0 && get(counts, "elytra") > 0;
-		if (maceKit) return spears > 0 ? SPEAR_MACE : MACE;
+		// Maces only appear in the mace kits, so any mace settles it, whatever else is (or isn't) carried.
+		// This check also runs before Netherite OP, which a mace kit in full netherite would otherwise match.
+		if (get(counts, "mace") > 0) return spears > 0 ? SPEAR_MACE : MACE;
 		boolean smg = get(counts, "cobweb") > 0 && get(counts, "water_bucket") > 0
 			&& get(counts, "oak_log") > 0 && get(counts, "experience_bottle") > 0;
 		if (smg && "diamond".equals(armor)) return DIAMOND_SMP;
