@@ -34,4 +34,4 @@ Versions (Loom 1.19.1, Loader 0.19.5, Fabric API 0.161.0+26.2) are set in `gradl
 | Diamond / Netherite SMP | full diamond / netherite armour + cobwebs, water bucket, oak logs, XP bottles | XP bottles, cobwebs, golden apples |
 | Netherite OP | full netherite + 12+ potions | healing potions, XP bottles, totems, other potions |
 
-Every kit also shows per-piece armour durability and the total durability lead. `/spectate kit <name>` overrides the label.
+Every kit also shows per-piece armour durability and the total durability difference (opponent minus the player: "+" means the player is behind). `/spectate kit <name>` overrides the label.
